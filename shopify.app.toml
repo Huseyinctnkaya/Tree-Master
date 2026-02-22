@@ -1,25 +1,20 @@
-# This file stores configurations for your Shopify app.
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
+client_id = "c8867de6e4b3b9ef48e23dedbac5bd03"
 name = "Tree Master"
-client_id = ""
-application_url = "https://TUNNEL_URL.trycloudflare.com"
+application_url = "https://directions-arm-alpine-exceptional.trycloudflare.com"
 embedded = true
 
+[build]
+automatically_update_urls_on_dev = true
+include_config_on_deploy = true
+
+[webhooks]
+api_version = "2026-04"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 scopes = "read_content,write_content"
 
 [auth]
-redirect_urls = ["https://TUNNEL_URL.trycloudflare.com/auth/callback"]
-
-[webhooks]
-api_version = "2025-01"
-
-  [[webhooks.subscriptions]]
-  uri = "/webhooks/app/uninstalled"
-  topics = ["app/uninstalled"]
-
-  [[webhooks.subscriptions]]
-  topics = ["app/scopes_update"]
-  uri = "/webhooks/app/scopes_update"
-
-[access_scopes]
-use_legacy_install_flow = false
+redirect_urls = [ "https://directions-arm-alpine-exceptional.trycloudflare.com/auth/callback" ]
