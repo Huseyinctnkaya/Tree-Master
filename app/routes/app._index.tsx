@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { LoaderFunctionArgs } from "@remix-run/node";
-import { useLoaderData, useNavigate } from "@remix-run/react";
+import { useLoaderData } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -54,23 +54,24 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
 const STEPS = [
   {
-    number: "1",
+    id: "1",
     title: "Enable the app",
-    description: "",
+    description: null,
     done: true,
     action: null,
   },
   {
-    number: "2",
+    id: "2",
     title: "Browse your menus",
-    description: "View all your store's navigation menus in one place.",
+    description: null,
     done: false,
-    action: { label: "View menus", url: "/app/menus" },
+    action: null,
   },
   {
-    number: "3",
-    title: "Edit & deploy a menu",
-    description: "Edit menu items, save as a draft, and deploy changes to your live store.",
+    id: "3",
+    title: "Edit and deploy a menu",
+    description:
+      "Open a menu, update its items, then deploy changes live to your store.",
     done: false,
     action: { label: "Go to menus", url: "/app/menus" },
   },
@@ -83,8 +84,8 @@ function DoneIcon() {
   return (
     <div
       style={{
-        width: 24,
-        height: 24,
+        width: 18,
+        height: 18,
         borderRadius: "50%",
         background: "#303030",
         display: "flex",
@@ -93,11 +94,11 @@ function DoneIcon() {
         flexShrink: 0,
       }}
     >
-      <svg width="12" height="10" viewBox="0 0 12 10" fill="none">
+      <svg width="10" height="8" viewBox="0 0 12 10" fill="none">
         <path
           d="M1 5L4.5 8.5L11 1.5"
           stroke="white"
-          strokeWidth="2"
+          strokeWidth="2.5"
           strokeLinecap="round"
           strokeLinejoin="round"
         />
@@ -110,8 +111,8 @@ function PendingIcon({ active }: { active: boolean }) {
   return (
     <div
       style={{
-        width: active ? 28 : 24,
-        height: active ? 28 : 24,
+        width: active ? 20 : 18,
+        height: active ? 20 : 18,
         borderRadius: "50%",
         border: `2px dashed ${active ? "#8c8c8c" : "#C9CCCF"}`,
         flexShrink: 0,
@@ -123,11 +124,10 @@ function PendingIcon({ active }: { active: boolean }) {
 
 export default function Dashboard() {
   const { totalMenus, totalItems } = useLoaderData<typeof loader>();
-  const navigate = useNavigate();
+
   const [guideOpen, setGuideOpen] = useState(true);
-  // Start with the first incomplete step active
-  const firstIncomplete = STEPS.findIndex((s) => !s.done);
-  const [activeStep, setActiveStep] = useState(firstIncomplete);
+  const defaultActiveStep = STEPS.findIndex((step) => step.id === "3");
+  const [activeStep, setActiveStep] = useState(defaultActiveStep);
 
   return (
     <Page>
@@ -195,12 +195,11 @@ export default function Dashboard() {
                     const isActive = !step.done && index === activeStep;
 
                     return (
-                      <div key={step.number}>
+                      <div key={step.id}>
                         <Divider />
                         <Box
                           paddingBlock="400"
                           paddingInline="400"
-                          background={isActive ? "bg-surface-secondary" : "bg-surface"}
                         >
                           <div
                             style={{ cursor: step.done ? "default" : "pointer" }}
@@ -219,43 +218,23 @@ export default function Dashboard() {
                                 >
                                   {step.title}
                                 </Text>
-                                {step.done && (
-                                  <Text as="p" variant="bodySm" tone="success">
-                                    Completed
-                                  </Text>
-                                )}
                               </BlockStack>
                             </InlineStack>
                           </div>
 
                           {/* Expanded content */}
                           {isActive && step.description && (
-                            <Box paddingBlockStart="300" paddingInlineStart="1600">
+                            <Box paddingBlockStart="200" paddingInlineStart="1200">
                               <BlockStack gap="300">
                                 <Text as="p" variant="bodySm" tone="subdued">
                                   {step.description}
                                 </Text>
                                 {step.action && (
-                                  <div>
-                                    <button
-                                      onClick={() => navigate(step.action!.url)}
-                                      style={{
-                                        background: "#1a1a1a",
-                                        color: "#fff",
-                                        border: "none",
-                                        borderRadius: "6px",
-                                        padding: "8px 16px",
-                                        fontSize: "13px",
-                                        fontWeight: 500,
-                                        cursor: "pointer",
-                                        display: "inline-flex",
-                                        alignItems: "center",
-                                        lineHeight: 1.4,
-                                      }}
-                                    >
+                                  <InlineStack>
+                                    <Button size="micro" url={step.action.url}>
                                       {step.action.label}
-                                    </button>
-                                  </div>
+                                    </Button>
+                                  </InlineStack>
                                 )}
                               </BlockStack>
                             </Box>
