@@ -271,7 +271,8 @@ export default function Analytics() {
     return Math.max(0, Math.min(100, score));
   })();
 
-  const healthTone = healthScore >= 80 ? "success" : healthScore >= 50 ? "warning" : "critical";
+  const healthTone = healthScore >= 80 ? "success" : "critical" as const;
+  const healthBadgeTone = healthScore >= 80 ? "success" : healthScore >= 50 ? "warning" : "critical" as const;
 
   return (
     <Page backAction={{ content: "Dashboard", url: "/app" }} title="Analytics">
@@ -313,7 +314,7 @@ export default function Analytics() {
                 <Text as="h2" variant="headingMd">
                   Menu Health
                 </Text>
-                <Badge tone={healthTone}>{healthScore}/100</Badge>
+                <Badge tone={healthBadgeTone}>{String(healthScore)}/100</Badge>
               </InlineStack>
               <ProgressBar
                 progress={healthScore}

@@ -13,6 +13,7 @@ import {
   Divider,
   Badge,
   Icon,
+  ProgressBar,
 } from "@shopify/polaris";
 import { ChevronUpIcon, ChevronDownIcon, EmailIcon, QuestionCircleIcon } from "@shopify/polaris-icons";
 import { TitleBar } from "@shopify/app-bridge-react";
@@ -24,15 +25,48 @@ const MENUS_QUERY = `#graphql
       edges {
         node {
           id
+          title
           items {
             id
-            items { id }
+            title
+            url
+            type
+            items {
+              id
+              title
+              url
+              type
+            }
           }
         }
       }
     }
   }
 `;
+
+function countEmptyMenus(menus: any[]): string[] {
+  return menus
+    .filter(({ node }: any) => !node.items || node.items.length === 0)
+    .map(({ node }: any) => node.title);
+}
+
+function countMissingUrlItems(items: any[]): number {
+  let count = 0;
+  for (const item of items) {
+    if (item.type === "HTTP" && (!item.url || item.url.trim() === "")) count++;
+    if (item.items) count += countMissingUrlItems(item.items);
+  }
+  return count;
+}
+
+function countEmptyTitleItems(items: any[]): number {
+  let count = 0;
+  for (const item of items) {
+    if (!item.title || item.title.trim() === "") count++;
+    if (item.items) count += countEmptyTitleItems(item.items);
+  }
+  return count;
+}
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
@@ -50,7 +84,29 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     return acc + topLevel + subItems;
   }, 0);
 
-  return { totalMenus, totalItems };
+  // Health
+  const emptyMenus = countEmptyMenus(menus);
+  let missingUrlCount = 0;
+  let emptyTitleCount = 0;
+  for (const { node } of menus) {
+    missingUrlCount += countMissingUrlItems(node.items ?? []);
+    emptyTitleCount += countEmptyTitleItems(node.items ?? []);
+  }
+
+  let healthScore = 100;
+  if (emptyMenus.length > 0) healthScore -= emptyMenus.length * 10;
+  if (emptyTitleCount > 0) healthScore -= emptyTitleCount * 5;
+  if (missingUrlCount > 0) healthScore -= missingUrlCount * 5;
+  healthScore = Math.max(0, Math.min(100, healthScore));
+
+  return {
+    totalMenus,
+    totalItems,
+    healthScore,
+    emptyMenus,
+    missingUrlCount,
+    emptyTitleCount,
+  };
 };
 
 const STEPS = [
@@ -125,7 +181,15 @@ function PendingIcon({ active }: { active: boolean }) {
 }
 
 export default function Dashboard() {
-  useLoaderData<typeof loader>();
+  const {
+    healthScore,
+    emptyMenus,
+    missingUrlCount,
+    emptyTitleCount,
+  } = useLoaderData<typeof loader>();
+
+  const healthTone = healthScore >= 80 ? "success" : "critical" as const;
+  const healthBadgeTone = healthScore >= 80 ? "success" : healthScore >= 50 ? "warning" : "critical" as const;
 
   const [guideOpen, setGuideOpen] = useState(true);
   const [guideVisible, setGuideVisible] = useState(true);
@@ -275,6 +339,89 @@ export default function Dashboard() {
               )}
             </Card>
 
+            {/* Menu Health */}
+            <Card>
+              <BlockStack gap="400">
+                <InlineStack align="space-between" blockAlign="center">
+                  <Text as="h2" variant="headingMd">
+                    Menu Health
+                  </Text>
+                  <Badge tone={healthBadgeTone}>{String(healthScore)}/100</Badge>
+                </InlineStack>
+                <ProgressBar
+                  progress={healthScore}
+                  tone={healthTone}
+                  size="small"
+                />
+                <BlockStack gap="200">
+                  {emptyMenus.length > 0 && (
+                    <InlineStack gap="200" blockAlign="center">
+                      <div
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: "50%",
+                          background: "#D72C0D",
+                          flexShrink: 0,
+                        }}
+                      />
+                      <Text as="p" variant="bodySm">
+                        {emptyMenus.length} empty menu(s): {emptyMenus.join(", ")}
+                      </Text>
+                    </InlineStack>
+                  )}
+                  {missingUrlCount > 0 && (
+                    <InlineStack gap="200" blockAlign="center">
+                      <div
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: "50%",
+                          background: "#FFC453",
+                          flexShrink: 0,
+                        }}
+                      />
+                      <Text as="p" variant="bodySm">
+                        {missingUrlCount} item(s) with missing URL
+                      </Text>
+                    </InlineStack>
+                  )}
+                  {emptyTitleCount > 0 && (
+                    <InlineStack gap="200" blockAlign="center">
+                      <div
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: "50%",
+                          background: "#FFC453",
+                          flexShrink: 0,
+                        }}
+                      />
+                      <Text as="p" variant="bodySm">
+                        {emptyTitleCount} item(s) without title
+                      </Text>
+                    </InlineStack>
+                  )}
+                  {emptyMenus.length === 0 && missingUrlCount === 0 && emptyTitleCount === 0 && (
+                    <InlineStack gap="200" blockAlign="center">
+                      <div
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: "50%",
+                          background: "#008060",
+                          flexShrink: 0,
+                        }}
+                      />
+                      <Text as="p" variant="bodySm">
+                        All menus are healthy — no issues detected
+                      </Text>
+                    </InlineStack>
+                  )}
+                </BlockStack>
+              </BlockStack>
+            </Card>
+
             {/* Quick Actions */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
               <Card>
@@ -366,6 +513,9 @@ export default function Dashboard() {
               </BlockStack>
             </Card>
           </BlockStack>
+        </Layout.Section>
+        <Layout.Section>
+          <Box paddingBlockEnd="800" />
         </Layout.Section>
       </Layout>
     </Page>
