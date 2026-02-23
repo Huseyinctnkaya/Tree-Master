@@ -26,6 +26,7 @@ export default function App() {
         </Link>
         <Link to="/app/menus">Menus</Link>
         <Link to="/app/import-export">Import & Export</Link>
+        <Link to="/app/analytics">Analytics</Link>
       </NavMenu>
       <Outlet />
     </AppProvider>
