@@ -14,6 +14,7 @@ import {
   Divider,
   Banner,
   Box,
+  Select,
 } from "@shopify/polaris";
 import { TitleBar, SaveBar, useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
@@ -78,6 +79,23 @@ const UPDATE_MENU_MUTATION = `#graphql
   }
 `;
 
+// ---- Menu Item Types ----
+
+const MENU_ITEM_TYPES = [
+  { value: "HTTP", label: "Custom URL" },
+  { value: "FRONTPAGE", label: "Home" },
+  { value: "CATALOG", label: "All Products" },
+  { value: "SEARCH", label: "Search" },
+  { value: "COLLECTION", label: "Collection" },
+  { value: "PRODUCT", label: "Product" },
+  { value: "PAGE", label: "Page" },
+  { value: "BLOG", label: "Blog" },
+  { value: "ARTICLE", label: "Article" },
+];
+
+const AUTO_TYPES = ["FRONTPAGE", "CATALOG", "SEARCH"];
+const URL_TYPES = ["HTTP", "FRONTEND_PAGE"];
+
 // ---- Helpers ----
 
 function normalizeItems(items: any[]): MenuItem[] {
@@ -102,7 +120,12 @@ function buildUpdateInput(items: MenuItem[]): object[] {
       input.id = item.id;
     }
 
-    if (item.type === "HTTP" || item.type === "FRONTEND_PAGE") {
+    if (URL_TYPES.includes(item.type)) {
+      input.url = item.url;
+    } else if (AUTO_TYPES.includes(item.type)) {
+      // Auto types don't need url or resourceId
+    } else if (item.url) {
+      // Resource types: send URL if provided (Shopify resolves it)
       input.url = item.url;
     } else if (item.resourceId) {
       input.resourceId = item.resourceId;
@@ -219,7 +242,22 @@ function MenuItemRow({
   onMoveUp: () => void;
   onMoveDown: () => void;
 }) {
-  const isUrlEditable = item.type === "HTTP" || item.type === "FRONTEND_PAGE";
+  const isAutoType = AUTO_TYPES.includes(item.type);
+  const showUrlField = URL_TYPES.includes(item.type) || (!isAutoType && !item.resourceId);
+
+  const handleTypeChange = useCallback(
+    (val: string) => {
+      const updated: MenuItem = { ...item, type: val };
+      if (AUTO_TYPES.includes(val)) {
+        updated.url = "";
+        updated.resourceId = null;
+      } else if (URL_TYPES.includes(val)) {
+        updated.resourceId = null;
+      }
+      onChange(updated);
+    },
+    [item, onChange],
+  );
 
   const handleSubChange = useCallback(
     (i: number, updated: MenuItem) => {
@@ -273,7 +311,15 @@ function MenuItemRow({
         {/* Row header */}
         <InlineStack align="space-between" blockAlign="center">
           <InlineStack gap="200" blockAlign="center">
-            <Badge tone={depth === 0 ? "info" : undefined}>{item.type}</Badge>
+            <div style={{ minWidth: 140 }}>
+              <Select
+                label=""
+                labelHidden
+                options={MENU_ITEM_TYPES}
+                value={item.type}
+                onChange={handleTypeChange}
+              />
+            </div>
             <Text variant="bodySm" tone="subdued" as="span">
               {depth === 0 ? "Top-level" : "Sub-item"}
             </Text>
@@ -301,7 +347,7 @@ function MenuItemRow({
               autoComplete="off"
             />
           </div>
-          {isUrlEditable ? (
+          {showUrlField && (
             <div style={{ flex: 2 }}>
               <TextField
                 label="URL"
@@ -311,17 +357,16 @@ function MenuItemRow({
                 placeholder="https://"
               />
             </div>
-          ) : (
-            item.resourceId && (
-              <div style={{ flex: 2 }}>
-                <TextField
-                  label="Linked resource"
-                  value={item.resourceId}
-                  disabled
-                  autoComplete="off"
-                />
-              </div>
-            )
+          )}
+          {!showUrlField && item.resourceId && (
+            <div style={{ flex: 2 }}>
+              <TextField
+                label="Linked resource"
+                value={item.resourceId}
+                disabled
+                autoComplete="off"
+              />
+            </div>
           )}
         </InlineStack>
 
