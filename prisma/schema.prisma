@@ -43,3 +43,19 @@ model MenuSnapshot {
 
   @@index([shop, menuGid])
 }
+
+// Scheduled menu deployments
+model ScheduledDeploy {
+  id         String   @id @default(cuid())
+  shop       String
+  menuGid    String
+  menuHandle String
+  menuTitle  String
+  data       String   // JSON string of the menu items to deploy
+  scheduledAt DateTime // When to deploy
+  status     String   @default("pending") // pending | deployed | cancelled
+  createdAt  DateTime @default(now())
+
+  @@index([shop, status])
+  @@index([scheduledAt, status])
+}

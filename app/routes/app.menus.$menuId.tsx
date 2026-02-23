@@ -16,8 +16,9 @@ import {
   Box,
   Select,
   Icon,
+  Tooltip,
 } from "@shopify/polaris";
-import { DeleteIcon, DragHandleIcon } from "@shopify/polaris-icons";
+import { DeleteIcon, DragHandleIcon, CalendarIcon, ClockIcon } from "@shopify/polaris-icons";
 import { TitleBar, SaveBar, useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
@@ -161,7 +162,7 @@ function emptyItem(): MenuItem {
 // ---- Loader ----
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
-  const { admin } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const menuGid = `gid://shopify/Menu/${params.menuId}`;
 
   const response = await admin.graphql(GET_MENU_QUERY, {
@@ -174,11 +175,26 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   }
 
   const menu = data.data.menu;
+
+  const scheduledDeploys = await prisma.scheduledDeploy.findMany({
+    where: {
+      shop: session.shop,
+      menuGid,
+      status: "pending",
+    },
+    orderBy: { scheduledAt: "asc" },
+  });
+
   return {
     menu: {
       ...menu,
       items: normalizeItems(menu.items),
     } as MenuData,
+    scheduledDeploys: scheduledDeploys.map((d) => ({
+      id: d.id,
+      scheduledAt: d.scheduledAt.toISOString(),
+      menuTitle: d.menuTitle,
+    })),
   };
 };
 
@@ -209,6 +225,33 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     return { success: true, intent: "save_draft" };
   }
 
+  if (intent === "schedule") {
+    const scheduledAt = formData.get("scheduledAt") as string;
+    if (!scheduledAt) {
+      return { success: false, intent: "schedule", errors: [{ field: "scheduledAt", message: "Please select a date and time." }] };
+    }
+    await prisma.scheduledDeploy.create({
+      data: {
+        shop: session.shop,
+        menuGid,
+        menuHandle,
+        menuTitle,
+        data: itemsJson,
+        scheduledAt: new Date(scheduledAt),
+      },
+    });
+    return { success: true, intent: "schedule" };
+  }
+
+  if (intent === "cancel_schedule") {
+    const scheduleId = formData.get("scheduleId") as string;
+    await prisma.scheduledDeploy.update({
+      where: { id: scheduleId },
+      data: { status: "cancelled" },
+    });
+    return { success: true, intent: "cancel_schedule" };
+  }
+
   if (intent === "deploy") {
     const response = await admin.graphql(UPDATE_MENU_MUTATION, {
       variables: {
@@ -230,6 +273,74 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
 
   return { success: false, intent: "unknown", errors: [{ field: "", message: "Unknown action" }] };
 };
+
+// ---- Visual Tree Preview ----
+
+function TreePreview({ items, menuTitle }: { items: MenuItem[]; menuTitle: string }) {
+  return (
+    <div style={{ fontFamily: "monospace", fontSize: 12, lineHeight: "22px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <rect x="1" y="1" width="14" height="3" rx="1" fill="#303030" />
+          <rect x="1" y="6" width="14" height="9" rx="1" stroke="#303030" strokeWidth="1.5" fill="none" />
+        </svg>
+        <span style={{ fontWeight: 600, color: "#303030" }}>{menuTitle || "Menu"}</span>
+      </div>
+      {items.length === 0 ? (
+        <div style={{ color: "#8C9196", paddingLeft: 20, fontStyle: "italic" }}>Empty menu</div>
+      ) : (
+        items.map((item, i) => (
+          <TreeNode key={item.id} item={item} isLast={i === items.length - 1} depth={0} />
+        ))
+      )}
+    </div>
+  );
+}
+
+function TreeNode({ item, isLast, depth }: { item: MenuItem; isLast: boolean; depth: number }) {
+  const connector = isLast ? "└─" : "├─";
+  const title = item.title || "(Untitled)";
+  const hasChildren = item.items && item.items.length > 0;
+  const typeLabel = TYPE_LABELS[item.type] || item.type;
+  const isAuto = AUTO_TYPES.includes(item.type);
+
+  return (
+    <div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          paddingLeft: depth === 0 ? 8 : 8 + depth * 20,
+          color: "#303030",
+        }}
+      >
+        <span style={{ color: "#8C9196", userSelect: "none" }}>{connector}</span>
+        <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 120 }}>
+          {title}
+        </span>
+        {isAuto && (
+          <span
+            style={{
+              fontSize: 9,
+              background: "#E4E5E7",
+              color: "#6D7175",
+              padding: "1px 4px",
+              borderRadius: 3,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {typeLabel}
+          </span>
+        )}
+      </div>
+      {hasChildren &&
+        item.items.map((child, ci) => (
+          <TreeNode key={child.id} item={child} isLast={ci === item.items.length - 1} depth={depth + 1} />
+        ))}
+    </div>
+  );
+}
 
 // ---- Draggable Item Row ----
 
@@ -565,7 +676,7 @@ function ExpandedForm({
 // ---- Main page ----
 
 export default function MenuEditor() {
-  const { menu } = useLoaderData<typeof loader>();
+  const { menu, scheduledDeploys } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
   const navigation = useNavigation();
@@ -577,6 +688,8 @@ export default function MenuEditor() {
   const [savedTitle, setSavedTitle] = useState(menu.title);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedSubId, setExpandedSubId] = useState<string | null>(null);
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [showSchedule, setShowSchedule] = useState(false);
 
   // Drag state for top-level items
   const dragRef = useRef<{ fromIndex: number } | null>(null);
@@ -620,6 +733,14 @@ export default function MenuEditor() {
         shopify.toast.show("Draft saved!");
         setSavedItems(JSON.stringify(items));
         setSavedTitle(menuTitle);
+      }
+      if (actionData.intent === "schedule") {
+        shopify.toast.show("Deploy scheduled!");
+        setShowSchedule(false);
+        setScheduleDate("");
+      }
+      if (actionData.intent === "cancel_schedule") {
+        shopify.toast.show("Schedule cancelled.");
       }
     }
   }, [actionData, shopify, items, menuTitle]);
@@ -960,6 +1081,35 @@ export default function MenuEditor() {
 
         <Layout.Section variant="oneThird">
           <BlockStack gap="400">
+            {/* Live Tree Preview */}
+            <Card>
+              <BlockStack gap="300">
+                <InlineStack gap="200" blockAlign="center">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M2 3h12M2 8h8M4 13h6" stroke="#2C6ECB" strokeWidth="1.5" strokeLinecap="round" />
+                    <circle cx="13" cy="8" r="1.5" fill="#2C6ECB" />
+                    <circle cx="13" cy="13" r="1.5" fill="#2C6ECB" />
+                  </svg>
+                  <Text as="h2" variant="headingMd">
+                    Tree Preview
+                  </Text>
+                </InlineStack>
+                <div
+                  style={{
+                    background: "#FAFAFA",
+                    border: "1px solid #E1E3E5",
+                    borderRadius: 8,
+                    padding: "10px 12px",
+                    maxHeight: 280,
+                    overflowY: "auto",
+                  }}
+                >
+                  <TreePreview items={items} menuTitle={menuTitle} />
+                </div>
+              </BlockStack>
+            </Card>
+
+            {/* Menu Info */}
             <Card>
               <BlockStack gap="300">
                 <Text as="h2" variant="headingMd">
@@ -980,6 +1130,118 @@ export default function MenuEditor() {
               </BlockStack>
             </Card>
 
+            {/* Scheduled Publishing */}
+            <Card>
+              <BlockStack gap="300">
+                <InlineStack gap="200" blockAlign="center">
+                  <div style={{ display: "flex", color: "#8C6B2E" }}>
+                    <Icon source={ClockIcon} />
+                  </div>
+                  <Text as="h2" variant="headingMd">
+                    Schedule Deploy
+                  </Text>
+                </InlineStack>
+                <Text as="p" variant="bodySm" tone="subdued">
+                  Plan menu changes for a future date. Perfect for sales events, seasonal updates, or launches.
+                </Text>
+
+                {/* Pending schedules */}
+                {scheduledDeploys.length > 0 && (
+                  <BlockStack gap="200">
+                    {scheduledDeploys.map((sd) => (
+                      <div
+                        key={sd.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          background: "#FFF8E6",
+                          border: "1px solid #FFCC47",
+                          borderRadius: 8,
+                          padding: "8px 12px",
+                        }}
+                      >
+                        <div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            <div style={{ display: "flex", color: "#8C6B2E" }}>
+                              <Icon source={CalendarIcon} />
+                            </div>
+                            <Text as="span" variant="bodySm" fontWeight="semibold">
+                              {new Date(sd.scheduledAt).toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </Text>
+                          </div>
+                        </div>
+                        <Button
+                          size="slim"
+                          tone="critical"
+                          variant="plain"
+                          onClick={() => {
+                            const fd = new FormData();
+                            fd.append("intent", "cancel_schedule");
+                            fd.append("scheduleId", sd.id);
+                            fd.append("menuTitle", menuTitle);
+                            fd.append("menuHandle", menu.handle);
+                            fd.append("items", JSON.stringify(items));
+                            submit(fd, { method: "post" });
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    ))}
+                  </BlockStack>
+                )}
+
+                {!showSchedule ? (
+                  <Button
+                    fullWidth
+                    onClick={() => setShowSchedule(true)}
+                    icon={CalendarIcon}
+                  >
+                    Schedule a Deploy
+                  </Button>
+                ) : (
+                  <BlockStack gap="200">
+                    <TextField
+                      label="Deploy date & time"
+                      type="datetime-local"
+                      value={scheduleDate}
+                      onChange={setScheduleDate}
+                      autoComplete="off"
+                      min={new Date().toISOString().slice(0, 16)}
+                    />
+                    <InlineStack gap="200">
+                      <Button
+                        variant="primary"
+                        loading={isSubmitting}
+                        disabled={!scheduleDate}
+                        onClick={() => {
+                          const fd = new FormData();
+                          fd.append("intent", "schedule");
+                          fd.append("menuTitle", menuTitle);
+                          fd.append("menuHandle", menu.handle);
+                          fd.append("items", JSON.stringify(items));
+                          fd.append("scheduledAt", scheduleDate);
+                          submit(fd, { method: "post" });
+                        }}
+                      >
+                        Confirm
+                      </Button>
+                      <Button onClick={() => { setShowSchedule(false); setScheduleDate(""); }}>
+                        Cancel
+                      </Button>
+                    </InlineStack>
+                  </BlockStack>
+                )}
+              </BlockStack>
+            </Card>
+
+            {/* Drafts */}
             <Card>
               <BlockStack gap="300">
                 <Text as="h2" variant="headingMd">
