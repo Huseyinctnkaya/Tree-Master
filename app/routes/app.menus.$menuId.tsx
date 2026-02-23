@@ -15,7 +15,9 @@ import {
   Banner,
   Box,
   Select,
+  Icon,
 } from "@shopify/polaris";
+import { DeleteIcon, DragHandleIcon } from "@shopify/polaris-icons";
 import { TitleBar, SaveBar, useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
@@ -36,6 +38,12 @@ type MenuData = {
   handle: string;
   title: string;
   items: MenuItem[];
+};
+
+type DragInfo = {
+  level: "top" | "sub";
+  parentId?: string;
+  index: number;
 };
 
 // ---- GraphQL ----
@@ -93,6 +101,9 @@ const MENU_ITEM_TYPES = [
   { value: "ARTICLE", label: "Article" },
 ];
 
+const TYPE_LABELS: Record<string, string> = {};
+for (const t of MENU_ITEM_TYPES) TYPE_LABELS[t.value] = t.label;
+
 const AUTO_TYPES = ["FRONTPAGE", "CATALOG", "SEARCH"];
 const URL_TYPES = ["HTTP", "FRONTEND_PAGE"];
 
@@ -125,7 +136,6 @@ function buildUpdateInput(items: MenuItem[]): object[] {
     } else if (AUTO_TYPES.includes(item.type)) {
       // Auto types don't need url or resourceId
     } else if (item.url) {
-      // Resource types: send URL if provided (Shopify resolves it)
       input.url = item.url;
     } else if (item.resourceId) {
       input.resourceId = item.resourceId;
@@ -221,26 +231,155 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   return { success: false, intent: "unknown", errors: [{ field: "", message: "Unknown action" }] };
 };
 
-// ---- Sub-component: single menu item row ----
+// ---- Draggable Item Row ----
 
-function MenuItemRow({
+function ItemRow({
   item,
   depth,
-  index,
-  total,
-  onChange,
+  isExpanded,
+  isDragOver,
+  dragPosition,
+  onToggle,
   onDelete,
-  onMoveUp,
-  onMoveDown,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDragLeave,
+  onDrop,
 }: {
   item: MenuItem;
   depth: number;
-  index: number;
-  total: number;
+  isExpanded: boolean;
+  isDragOver?: boolean;
+  dragPosition?: "above" | "below";
+  onToggle: () => void;
+  onDelete: () => void;
+  onDragStart: (e: React.DragEvent) => void;
+  onDragEnd: (e: React.DragEvent) => void;
+  onDragOver: (e: React.DragEvent) => void;
+  onDragLeave: (e: React.DragEvent) => void;
+  onDrop: (e: React.DragEvent) => void;
+}) {
+  const typeLabel = TYPE_LABELS[item.type] || item.type;
+  const title = item.title || "(Untitled)";
+  const isEmpty = !item.title;
+
+  return (
+    <div
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      style={{ position: "relative" }}
+    >
+      {/* Drop indicator line - only show above */}
+      {isDragOver && (
+        <div
+          style={{
+            position: "absolute",
+            top: dragPosition === "above" ? -1 : undefined,
+            bottom: dragPosition === "below" ? -1 : undefined,
+            left: depth > 0 ? 44 : 12,
+            right: 12,
+            height: 2,
+            background: "#2C6ECB",
+            borderRadius: 1,
+            zIndex: 10,
+          }}
+        />
+      )}
+
+      <div
+        onClick={onToggle}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "10px 12px",
+          paddingLeft: depth > 0 ? 44 : 12,
+          cursor: "pointer",
+          background: isExpanded ? "#F6F6F7" : "transparent",
+          borderRadius: 8,
+          transition: "background 0.1s ease",
+        }}
+        onMouseEnter={(e) => {
+          if (!isExpanded) e.currentTarget.style.background = "#FAFAFA";
+        }}
+        onMouseLeave={(e) => {
+          if (!isExpanded) e.currentTarget.style.background = "transparent";
+        }}
+      >
+        {/* Drag handle */}
+        <div
+          draggable
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            flexShrink: 0,
+            color: "#8C9196",
+            display: "flex",
+            cursor: "grab",
+          }}
+        >
+          <Icon source={DragHandleIcon} />
+        </div>
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <Text as="span" variant="bodyMd" fontWeight={isExpanded ? "semibold" : "regular"} tone={isEmpty ? "subdued" : undefined}>
+            {title}
+          </Text>
+        </div>
+        <div style={{ flexShrink: 0 }}>
+          <Badge>{typeLabel}</Badge>
+        </div>
+        <div
+          style={{ flexShrink: 0, display: "flex", cursor: "pointer", color: "#8C9196" }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = "#D72C0D"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "#8C9196"; }}
+        >
+          <Icon source={DeleteIcon} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- Expanded Item Form ----
+
+function ExpandedForm({
+  item,
+  depth,
+  expandedSubId,
+  onChange,
+  onDelete,
+  onToggle,
+  onToggleSub,
+  onSubDragStart,
+  onSubDragEnd,
+  onSubDragOver,
+  onSubDragLeave,
+  onSubDrop,
+  dragOverSubId,
+  dragSubPosition,
+}: {
+  item: MenuItem;
+  depth: number;
+  expandedSubId: string | null;
   onChange: (updated: MenuItem) => void;
   onDelete: () => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
+  onToggle: () => void;
+  onToggleSub: (id: string | null) => void;
+  onSubDragStart: (e: React.DragEvent, index: number) => void;
+  onSubDragEnd: (e: React.DragEvent) => void;
+  onSubDragOver: (e: React.DragEvent, index: number) => void;
+  onSubDragLeave: (e: React.DragEvent) => void;
+  onSubDrop: (e: React.DragEvent, index: number) => void;
+  dragOverSubId: string | null;
+  dragSubPosition: "above" | "below" | null;
 }) {
   const isAutoType = AUTO_TYPES.includes(item.type);
   const showUrlField = URL_TYPES.includes(item.type) || (!isAutoType && !item.resourceId);
@@ -275,133 +414,153 @@ function MenuItemRow({
     [item, onChange],
   );
 
-  const handleSubMoveUp = useCallback(
-    (i: number) => {
-      if (i === 0) return;
-      const next = [...item.items];
-      [next[i - 1], next[i]] = [next[i], next[i - 1]];
-      onChange({ ...item, items: next });
-    },
-    [item, onChange],
-  );
-
-  const handleSubMoveDown = useCallback(
-    (i: number) => {
-      if (i === item.items.length - 1) return;
-      const next = [...item.items];
-      [next[i], next[i + 1]] = [next[i + 1], next[i]];
-      onChange({ ...item, items: next });
-    },
-    [item, onChange],
-  );
-
   const handleAddSubItem = useCallback(() => {
-    onChange({ ...item, items: [...item.items, emptyItem()] });
-  }, [item, onChange]);
+    const newItem = emptyItem();
+    onChange({ ...item, items: [...item.items, newItem] });
+    onToggleSub(newItem.id);
+  }, [item, onChange, onToggleSub]);
 
   return (
-    <Box
-      padding="300"
-      background={depth === 0 ? "bg-surface" : "bg-surface-secondary"}
-      borderWidth="025"
-      borderColor="border"
-      borderRadius="200"
+    <div
+      style={{
+        border: "1px solid #E1E3E5",
+        borderRadius: 10,
+        overflow: "hidden",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+      }}
     >
-      <BlockStack gap="300">
-        {/* Row header */}
-        <InlineStack align="space-between" blockAlign="center">
-          <InlineStack gap="200" blockAlign="center">
-            <div style={{ minWidth: 140 }}>
+      {/* Header row */}
+      <ItemRow
+        item={item}
+        depth={0}
+        isExpanded={true}
+        onToggle={onToggle}
+        onDelete={onDelete}
+        onDragStart={() => {}}
+        onDragEnd={() => {}}
+        onDragOver={(e) => e.preventDefault()}
+        onDragLeave={() => {}}
+        onDrop={(e) => e.preventDefault()}
+      />
+
+      {/* Form */}
+      <div style={{ borderTop: "1px solid #E1E3E5", padding: 16 }}>
+        <BlockStack gap="300">
+          {/* Title */}
+          <TextField
+            label="Title"
+            value={item.title}
+            onChange={(val) => onChange({ ...item, title: val })}
+            autoComplete="off"
+          />
+
+          {/* Type + URL/Resource */}
+          <InlineStack gap="300" blockAlign="end">
+            <div style={{ minWidth: 160 }}>
               <Select
-                label=""
-                labelHidden
+                label="Type"
                 options={MENU_ITEM_TYPES}
                 value={item.type}
                 onChange={handleTypeChange}
               />
             </div>
-            <Text variant="bodySm" tone="subdued" as="span">
-              {depth === 0 ? "Top-level" : "Sub-item"}
-            </Text>
-          </InlineStack>
-          <InlineStack gap="100">
-            <Button size="slim" disabled={index === 0} onClick={onMoveUp}>
-              ↑
-            </Button>
-            <Button size="slim" disabled={index === total - 1} onClick={onMoveDown}>
-              ↓
-            </Button>
-            <Button size="slim" tone="critical" onClick={onDelete}>
-              Remove
-            </Button>
-          </InlineStack>
-        </InlineStack>
-
-        {/* Fields */}
-        <InlineStack gap="300" blockAlign="start">
-          <div style={{ flex: 1 }}>
-            <TextField
-              label="Title"
-              value={item.title}
-              onChange={(val) => onChange({ ...item, title: val })}
-              autoComplete="off"
-            />
-          </div>
-          {showUrlField && (
-            <div style={{ flex: 2 }}>
-              <TextField
-                label="URL"
-                value={item.url}
-                onChange={(val) => onChange({ ...item, url: val })}
-                autoComplete="off"
-                placeholder="https://"
-              />
-            </div>
-          )}
-          {!showUrlField && item.resourceId && (
-            <div style={{ flex: 2 }}>
-              <TextField
-                label="Linked resource"
-                value={item.resourceId}
-                disabled
-                autoComplete="off"
-              />
-            </div>
-          )}
-        </InlineStack>
-
-        {/* Sub-items (only on depth 0) */}
-        {depth === 0 && (
-          <BlockStack gap="200">
-            {item.items.length > 0 && (
-              <BlockStack gap="200">
-                <Text variant="bodySm" tone="subdued" as="p">
-                  Sub-items
-                </Text>
-                {item.items.map((sub, i) => (
-                  <MenuItemRow
-                    key={sub.id}
-                    item={sub}
-                    depth={1}
-                    index={i}
-                    total={item.items.length}
-                    onChange={(u) => handleSubChange(i, u)}
-                    onDelete={() => handleSubDelete(i)}
-                    onMoveUp={() => handleSubMoveUp(i)}
-                    onMoveDown={() => handleSubMoveDown(i)}
-                  />
-                ))}
-              </BlockStack>
+            {showUrlField && (
+              <div style={{ flex: 1 }}>
+                <TextField
+                  label="URL"
+                  value={item.url}
+                  onChange={(val) => onChange({ ...item, url: val })}
+                  autoComplete="off"
+                  placeholder="https://"
+                />
+              </div>
             )}
-            <div>
+            {!showUrlField && item.resourceId && (
+              <div style={{ flex: 1 }}>
+                <TextField
+                  label="Linked resource"
+                  value={item.resourceId}
+                  disabled
+                  autoComplete="off"
+                />
+              </div>
+            )}
+            {isAutoType && !item.resourceId && (
+              <div style={{ flex: 1, paddingTop: 24 }}>
+                <Text as="p" variant="bodySm" tone="subdued">
+                  This link is set automatically.
+                </Text>
+              </div>
+            )}
+          </InlineStack>
+
+          {/* Add sub-item button */}
+          {depth === 0 && (
+            <InlineStack align="end">
               <Button size="slim" onClick={handleAddSubItem}>
                 + Add sub-item
               </Button>
+            </InlineStack>
+          )}
+
+          {/* Sub-items */}
+          {depth === 0 && item.items.length > 0 && (
+            <div style={{ marginTop: 4 }}>
+              <Divider />
+              <div style={{ marginTop: 8 }}>
+                <BlockStack gap="0">
+                  {item.items.map((sub, i) => {
+                    const isSubExpanded = expandedSubId === sub.id;
+
+                    if (isSubExpanded) {
+                      return (
+                        <div key={sub.id} style={{ paddingLeft: 20 }}>
+                          <ExpandedForm
+                            item={sub}
+                            depth={1}
+                            expandedSubId={null}
+                            onChange={(u) => handleSubChange(i, u)}
+                            onDelete={() => handleSubDelete(i)}
+                            onToggle={() => onToggleSub(null)}
+                            onToggleSub={() => {}}
+                            onSubDragStart={() => {}}
+                            onSubDragEnd={() => {}}
+                            onSubDragOver={() => {}}
+                            onSubDragLeave={() => {}}
+                            onSubDrop={() => {}}
+                            dragOverSubId={null}
+                            dragSubPosition={null}
+                          />
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div key={sub.id} style={{ paddingLeft: 20 }}>
+                        <ItemRow
+                          item={sub}
+                          depth={1}
+                          isExpanded={false}
+                          isDragOver={dragOverSubId === sub.id}
+                          dragPosition={dragSubPosition ?? undefined}
+                          onToggle={() => onToggleSub(sub.id)}
+                          onDelete={() => handleSubDelete(i)}
+                          onDragStart={(e) => onSubDragStart(e, i)}
+                          onDragEnd={onSubDragEnd}
+                          onDragOver={(e) => onSubDragOver(e, i)}
+                          onDragLeave={onSubDragLeave}
+                          onDrop={(e) => onSubDrop(e, i)}
+                        />
+                      </div>
+                    );
+                  })}
+                </BlockStack>
+              </div>
             </div>
-          </BlockStack>
-        )}
-      </BlockStack>
-    </Box>
+          )}
+        </BlockStack>
+      </div>
+    </div>
   );
 }
 
@@ -418,6 +577,18 @@ export default function MenuEditor() {
   const [menuTitle, setMenuTitle] = useState(menu.title);
   const [savedItems, setSavedItems] = useState<string>(JSON.stringify(menu.items));
   const [savedTitle, setSavedTitle] = useState(menu.title);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedSubId, setExpandedSubId] = useState<string | null>(null);
+
+  // Drag state for top-level items
+  const dragRef = useRef<{ fromIndex: number } | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [dragPosition, setDragPosition] = useState<"above" | "below" | null>(null);
+
+  // Drag state for sub-items (per expanded parent)
+  const subDragRef = useRef<{ parentId: string; fromIndex: number } | null>(null);
+  const [dragOverSubId, setDragOverSubId] = useState<string | null>(null);
+  const [dragSubPosition, setDragSubPosition] = useState<"above" | "below" | null>(null);
 
   const isSubmitting = navigation.state === "submitting";
   const prevActionRef = useRef<string>("");
@@ -425,7 +596,7 @@ export default function MenuEditor() {
   // Dirty check
   const isDirty = menuTitle !== savedTitle || JSON.stringify(items) !== savedItems;
 
-  // Show/hide save bar based on dirty state
+  // Show/hide save bar
   useEffect(() => {
     if (isDirty) {
       shopify.saveBar.show("menu-save-bar");
@@ -434,7 +605,7 @@ export default function MenuEditor() {
     }
   }, [isDirty, shopify]);
 
-  // Show toast only when new action data arrives
+  // Toast on action
   useEffect(() => {
     if (!actionData) return;
     const key = JSON.stringify(actionData);
@@ -458,6 +629,8 @@ export default function MenuEditor() {
   const handleDiscard = useCallback(() => {
     setItems(JSON.parse(savedItems));
     setMenuTitle(savedTitle);
+    setExpandedId(null);
+    setExpandedSubId(null);
   }, [savedItems, savedTitle]);
 
   const handleChange = useCallback((index: number, updated: MenuItem) => {
@@ -470,28 +643,150 @@ export default function MenuEditor() {
 
   const handleDelete = useCallback((index: number) => {
     setItems((prev) => prev.filter((_, i) => i !== index));
-  }, []);
-
-  const handleMoveUp = useCallback((index: number) => {
-    setItems((prev) => {
-      if (index === 0) return prev;
-      const next = [...prev];
-      [next[index - 1], next[index]] = [next[index], next[index - 1]];
-      return next;
-    });
-  }, []);
-
-  const handleMoveDown = useCallback((index: number) => {
-    setItems((prev) => {
-      if (index === prev.length - 1) return prev;
-      const next = [...prev];
-      [next[index], next[index + 1]] = [next[index + 1], next[index]];
-      return next;
-    });
+    setExpandedId(null);
   }, []);
 
   const handleAddItem = useCallback(() => {
-    setItems((prev) => [...prev, emptyItem()]);
+    const newItem = emptyItem();
+    setItems((prev) => [...prev, newItem]);
+    setExpandedId(newItem.id);
+    setExpandedSubId(null);
+  }, []);
+
+  const handleToggle = useCallback((id: string) => {
+    setExpandedId((prev) => (prev === id ? null : id));
+    setExpandedSubId(null);
+  }, []);
+
+  // ---- Top-level drag handlers ----
+
+  const handleTopDragStart = useCallback((e: React.DragEvent, index: number) => {
+    dragRef.current = { fromIndex: index };
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(index));
+    // Close any expanded items during drag
+    setExpandedId(null);
+    setExpandedSubId(null);
+  }, []);
+
+  const handleTopDragEnd = useCallback(() => {
+    dragRef.current = null;
+    setDragOverId(null);
+    setDragPosition(null);
+  }, []);
+
+  const handleTopDragOver = useCallback((e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (!dragRef.current) return;
+    if (dragRef.current.fromIndex === index) return;
+    e.dataTransfer.dropEffect = "move";
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const pos = e.clientY < midY ? "above" : "below";
+
+    setDragOverId(items[index]?.id ?? null);
+    setDragPosition(pos);
+  }, [items]);
+
+  const handleTopDragLeave = useCallback(() => {
+    setDragOverId(null);
+    setDragPosition(null);
+  }, []);
+
+  const handleTopDrop = useCallback((e: React.DragEvent, toIndex: number) => {
+    e.preventDefault();
+    if (!dragRef.current) return;
+
+    const fromIndex = dragRef.current.fromIndex;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const dropBelow = e.clientY >= midY;
+
+    setItems((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      let insertAt = dropBelow ? toIndex : toIndex;
+      // Adjust if moving downward
+      if (fromIndex < toIndex) {
+        insertAt = dropBelow ? toIndex : toIndex - 1;
+      } else {
+        insertAt = dropBelow ? toIndex + 1 : toIndex;
+      }
+      insertAt = Math.max(0, Math.min(next.length, insertAt));
+      next.splice(insertAt, 0, moved);
+      return next;
+    });
+
+    dragRef.current = null;
+    setDragOverId(null);
+    setDragPosition(null);
+  }, []);
+
+  // ---- Sub-item drag handlers ----
+
+  const handleSubDragStart = useCallback((parentId: string, e: React.DragEvent, index: number) => {
+    subDragRef.current = { parentId, fromIndex: index };
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(index));
+    setExpandedSubId(null);
+  }, []);
+
+  const handleSubDragEnd = useCallback(() => {
+    subDragRef.current = null;
+    setDragOverSubId(null);
+    setDragSubPosition(null);
+  }, []);
+
+  const handleSubDragOver = useCallback((e: React.DragEvent, subIndex: number, parentItems: MenuItem[]) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!subDragRef.current) return;
+    if (subDragRef.current.fromIndex === subIndex) return;
+    e.dataTransfer.dropEffect = "move";
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const pos = e.clientY < midY ? "above" : "below";
+
+    setDragOverSubId(parentItems[subIndex]?.id ?? null);
+    setDragSubPosition(pos);
+  }, []);
+
+  const handleSubDragLeave = useCallback(() => {
+    setDragOverSubId(null);
+    setDragSubPosition(null);
+  }, []);
+
+  const handleSubDrop = useCallback((e: React.DragEvent, toIndex: number, parentIndex: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!subDragRef.current) return;
+
+    const fromIndex = subDragRef.current.fromIndex;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const dropBelow = e.clientY >= midY;
+
+    setItems((prev) => {
+      const next = [...prev];
+      const parent = { ...next[parentIndex], items: [...next[parentIndex].items] };
+      const [moved] = parent.items.splice(fromIndex, 1);
+      let insertAt: number;
+      if (fromIndex < toIndex) {
+        insertAt = dropBelow ? toIndex : toIndex - 1;
+      } else {
+        insertAt = dropBelow ? toIndex + 1 : toIndex;
+      }
+      insertAt = Math.max(0, Math.min(parent.items.length, insertAt));
+      parent.items.splice(insertAt, 0, moved);
+      next[parentIndex] = parent;
+      return next;
+    });
+
+    subDragRef.current = null;
+    setDragOverSubId(null);
+    setDragSubPosition(null);
   }, []);
 
   const handleSubmit = useCallback(
@@ -504,6 +799,11 @@ export default function MenuEditor() {
       submit(fd, { method: "post" });
     },
     [items, menuTitle, menu.handle, submit],
+  );
+
+  const totalItemCount = items.reduce(
+    (acc, item) => acc + 1 + (item.items?.length ?? 0),
+    0,
   );
 
   const errors =
@@ -548,36 +848,114 @@ export default function MenuEditor() {
               />
             </Card>
 
-            <Card>
-              <BlockStack gap="400">
-                <Text as="h2" variant="headingMd">
-                  Menu Items
-                </Text>
-
-                {items.length === 0 && (
-                  <Text tone="subdued" as="p">
-                    No items yet. Add your first item below.
+            <Card padding="0">
+              <Box paddingBlock="300" paddingInline="400">
+                <InlineStack align="space-between" blockAlign="center">
+                  <Text as="h2" variant="headingMd">
+                    Menu Items
                   </Text>
-                )}
+                  <Badge tone="info">{String(totalItemCount)} items</Badge>
+                </InlineStack>
+              </Box>
+              <Divider />
 
-                {items.map((item, index) => (
-                  <MenuItemRow
-                    key={item.id}
-                    item={item}
-                    depth={0}
-                    index={index}
-                    total={items.length}
-                    onChange={(u) => handleChange(index, u)}
-                    onDelete={() => handleDelete(index)}
-                    onMoveUp={() => handleMoveUp(index)}
-                    onMoveDown={() => handleMoveDown(index)}
-                  />
-                ))}
+              {items.length === 0 ? (
+                <Box padding="600">
+                  <BlockStack gap="300" inlineAlign="center">
+                    <Text as="p" variant="bodyMd" tone="subdued">
+                      No items yet. Add your first menu item.
+                    </Text>
+                    <Button variant="primary" onClick={handleAddItem}>
+                      + Add menu item
+                    </Button>
+                  </BlockStack>
+                </Box>
+              ) : (
+                <div style={{ padding: "8px 12px" }}>
+                  <BlockStack gap="0">
+                    {items.map((item, index) => {
+                      const isExpanded = expandedId === item.id;
 
-                <div>
-                  <Button onClick={handleAddItem}>+ Add item</Button>
+                      if (isExpanded) {
+                        return (
+                          <ExpandedForm
+                            key={item.id}
+                            item={item}
+                            depth={0}
+                            expandedSubId={expandedSubId}
+                            onChange={(u) => handleChange(index, u)}
+                            onDelete={() => handleDelete(index)}
+                            onToggle={() => handleToggle(item.id)}
+                            onToggleSub={setExpandedSubId}
+                            onSubDragStart={(e, i) => handleSubDragStart(item.id, e, i)}
+                            onSubDragEnd={handleSubDragEnd}
+                            onSubDragOver={(e, i) => handleSubDragOver(e, i, item.items)}
+                            onSubDragLeave={handleSubDragLeave}
+                            onSubDrop={(e, i) => handleSubDrop(e, i, index)}
+                            dragOverSubId={dragOverSubId}
+                            dragSubPosition={dragSubPosition}
+                          />
+                        );
+                      }
+
+                      return (
+                        <div key={item.id}>
+                          <ItemRow
+                            item={item}
+                            depth={0}
+                            isExpanded={false}
+                            isDragOver={dragOverId === item.id}
+                            dragPosition={dragPosition ?? undefined}
+                            onToggle={() => handleToggle(item.id)}
+                            onDelete={() => handleDelete(index)}
+                            onDragStart={(e) => handleTopDragStart(e, index)}
+                            onDragEnd={handleTopDragEnd}
+                            onDragOver={(e) => handleTopDragOver(e, index)}
+                            onDragLeave={handleTopDragLeave}
+                            onDrop={(e) => handleTopDrop(e, index)}
+                          />
+                          {/* Show sub-items as collapsed under parent */}
+                          {item.items.length > 0 && (
+                            <div style={{ paddingLeft: 20 }}>
+                              {item.items.map((sub) => (
+                                <ItemRow
+                                  key={sub.id}
+                                  item={sub}
+                                  depth={1}
+                                  isExpanded={false}
+                                  onToggle={() => {
+                                    setExpandedId(item.id);
+                                    setExpandedSubId(sub.id);
+                                  }}
+                                  onDelete={() => {
+                                    const next = item.items.filter((s) => s.id !== sub.id);
+                                    handleChange(index, { ...item, items: next });
+                                  }}
+                                  onDragStart={() => {}}
+                                  onDragEnd={() => {}}
+                                  onDragOver={(e) => e.preventDefault()}
+                                  onDragLeave={() => {}}
+                                  onDrop={(e) => e.preventDefault()}
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </BlockStack>
+
+                  <div style={{ padding: "8px 0 4px" }}>
+                    <Button onClick={handleAddItem} icon={
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      </svg>
+                    }>
+                      Add menu item
+                    </Button>
+                  </div>
                 </div>
-              </BlockStack>
+              )}
             </Card>
           </BlockStack>
         </Layout.Section>
@@ -590,16 +968,12 @@ export default function MenuEditor() {
                   Menu Info
                 </Text>
                 <InlineStack align="space-between">
-                  <Text as="span" tone="subdued">
-                    Handle
-                  </Text>
+                  <Text as="span" tone="subdued">Handle</Text>
                   <Text as="span">/{menu.handle}</Text>
                 </InlineStack>
                 <InlineStack align="space-between">
-                  <Text as="span" tone="subdued">
-                    Items
-                  </Text>
-                  <Text as="span">{items.length}</Text>
+                  <Text as="span" tone="subdued">Items</Text>
+                  <Text as="span">{totalItemCount}</Text>
                 </InlineStack>
                 <Divider />
                 <Text as="p" variant="bodySm" tone="subdued">
