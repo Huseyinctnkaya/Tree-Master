@@ -15,7 +15,7 @@ import {
   Banner,
   Box,
 } from "@shopify/polaris";
-import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
+import { TitleBar, SaveBar, useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 
@@ -371,9 +371,23 @@ export default function MenuEditor() {
 
   const [items, setItems] = useState<MenuItem[]>(menu.items);
   const [menuTitle, setMenuTitle] = useState(menu.title);
+  const [savedItems, setSavedItems] = useState<string>(JSON.stringify(menu.items));
+  const [savedTitle, setSavedTitle] = useState(menu.title);
 
   const isSubmitting = navigation.state === "submitting";
   const prevActionRef = useRef<string>("");
+
+  // Dirty check
+  const isDirty = menuTitle !== savedTitle || JSON.stringify(items) !== savedItems;
+
+  // Show/hide save bar based on dirty state
+  useEffect(() => {
+    if (isDirty) {
+      shopify.saveBar.show("menu-save-bar");
+    } else {
+      shopify.saveBar.hide("menu-save-bar");
+    }
+  }, [isDirty, shopify]);
 
   // Show toast only when new action data arrives
   useEffect(() => {
@@ -383,10 +397,23 @@ export default function MenuEditor() {
     prevActionRef.current = key;
 
     if (actionData.success) {
-      if (actionData.intent === "deploy") shopify.toast.show("Deployed to store!");
-      if (actionData.intent === "save_draft") shopify.toast.show("Draft saved!");
+      if (actionData.intent === "deploy") {
+        shopify.toast.show("Deployed to store!");
+        setSavedItems(JSON.stringify(items));
+        setSavedTitle(menuTitle);
+      }
+      if (actionData.intent === "save_draft") {
+        shopify.toast.show("Draft saved!");
+        setSavedItems(JSON.stringify(items));
+        setSavedTitle(menuTitle);
+      }
     }
-  }, [actionData, shopify]);
+  }, [actionData, shopify, items, menuTitle]);
+
+  const handleDiscard = useCallback(() => {
+    setItems(JSON.parse(savedItems));
+    setMenuTitle(savedTitle);
+  }, [savedItems, savedTitle]);
 
   const handleChange = useCallback((index: number, updated: MenuItem) => {
     setItems((prev) => {
@@ -440,19 +467,19 @@ export default function MenuEditor() {
       : [];
 
   return (
-    <Page backAction={{ url: "/app" }} title={menuTitle} subtitle={`Handle: /${menu.handle}`}>
-      <TitleBar title={menuTitle}>
-        <button onClick={() => handleSubmit("save_draft")} disabled={isSubmitting}>
-          Save Draft
-        </button>
+    <Page backAction={{ url: "/app/menus" }} title={menuTitle} subtitle={`Handle: /${menu.handle}`}>
+      <TitleBar title={menuTitle} />
+      <SaveBar id="menu-save-bar">
         <button
+          // @ts-ignore
           variant="primary"
           onClick={() => handleSubmit("deploy")}
           disabled={isSubmitting}
         >
-          Deploy to Store
+          Deploy
         </button>
-      </TitleBar>
+        <button onClick={handleDiscard}>Discard</button>
+      </SaveBar>
 
       <Layout>
         <Layout.Section>
@@ -539,16 +566,11 @@ export default function MenuEditor() {
             <Card>
               <BlockStack gap="300">
                 <Text as="h2" variant="headingMd">
-                  Actions
+                  Drafts
                 </Text>
-                <Button
-                  variant="primary"
-                  loading={isSubmitting}
-                  onClick={() => handleSubmit("deploy")}
-                  fullWidth
-                >
-                  Deploy to Store
-                </Button>
+                <Text as="p" variant="bodySm" tone="subdued">
+                  Save a snapshot without deploying to your live store.
+                </Text>
                 <Button
                   loading={isSubmitting}
                   onClick={() => handleSubmit("save_draft")}
@@ -561,6 +583,7 @@ export default function MenuEditor() {
           </BlockStack>
         </Layout.Section>
       </Layout>
+      <Box paddingBlockEnd="1600" />
     </Page>
   );
 }
