@@ -31,6 +31,9 @@ type MenuItem = {
   url: string;
   type: string;
   resourceId: string | null;
+  handle: string;
+  seoKeywords: string;
+  metaDescription: string;
   items: MenuItem[];
 };
 
@@ -186,6 +189,22 @@ const SHOPIFY_AUTO_TYPES = ["FRONTPAGE", "CATALOG", "SEARCH"];
 
 // ---- Helpers ----
 
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/[\s_]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+type ItemMeta = {
+  handle: string;
+  seoKeywords: string;
+  metaDescription: string;
+};
+
 function detectAppType(shopifyType: string, url: string): string {
   if (shopifyType !== "HTTP") return shopifyType;
   const u = url || "";
@@ -212,16 +231,21 @@ function stripUrlForDisplay(appType: string, url: string): string {
   return url;
 }
 
-function normalizeItems(items: any[]): MenuItem[] {
+function normalizeItems(items: any[], metaMap: Record<string, ItemMeta> = {}): MenuItem[] {
   return (items ?? []).map((item) => {
     const appType = detectAppType(item.type ?? "HTTP", item.url ?? "");
+    const meta = metaMap[item.id] || {};
+    const title = item.title ?? "";
     return {
       id: item.id,
-      title: item.title ?? "",
+      title,
       url: stripUrlForDisplay(appType, item.url ?? ""),
       type: appType,
       resourceId: item.resourceId ?? null,
-      items: normalizeItems(item.items ?? []),
+      handle: meta.handle || slugify(title),
+      seoKeywords: meta.seoKeywords || "",
+      metaDescription: meta.metaDescription || "",
+      items: normalizeItems(item.items ?? [], metaMap),
     };
   });
 }
@@ -270,7 +294,7 @@ function newId() {
 }
 
 function emptyItem(): MenuItem {
-  return { id: newId(), title: "", url: "", type: "HTTP", resourceId: null, items: [] };
+  return { id: newId(), title: "", url: "", type: "HTTP", resourceId: null, handle: "", seoKeywords: "", metaDescription: "", items: [] };
 }
 
 // ---- Loader ----
@@ -290,6 +314,12 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 
   const menu = data.data.menu;
 
+  // Load saved metadata for this menu's items
+  const menuMeta = await prisma.menuMeta.findUnique({
+    where: { shop_menuGid: { shop: session.shop, menuGid } },
+  });
+  const metaMap: Record<string, ItemMeta> = menuMeta?.data ? JSON.parse(menuMeta.data) : {};
+
   const scheduledDeploys = await prisma.scheduledDeploy.findMany({
     where: {
       shop: session.shop,
@@ -302,7 +332,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   return {
     menu: {
       ...menu,
-      items: normalizeItems(menu.items),
+      items: normalizeItems(menu.items, metaMap),
     } as MenuData,
     scheduledDeploys: scheduledDeploys.map((d) => ({
       id: d.id,
@@ -314,6 +344,23 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 
 // ---- Action ----
 
+function extractMetaMap(items: MenuItem[]): Record<string, ItemMeta> {
+  const map: Record<string, ItemMeta> = {};
+  for (const item of items) {
+    if (item.handle || item.seoKeywords || item.metaDescription) {
+      map[item.id] = {
+        handle: item.handle || "",
+        seoKeywords: item.seoKeywords || "",
+        metaDescription: item.metaDescription || "",
+      };
+    }
+    if (item.items?.length) {
+      Object.assign(map, extractMetaMap(item.items));
+    }
+  }
+  return map;
+}
+
 export const action = async ({ request, params }: ActionFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   const menuGid = `gid://shopify/Menu/${params.menuId}`;
@@ -324,6 +371,16 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const menuHandle = formData.get("menuHandle") as string;
   const itemsJson = formData.get("items") as string;
   const items = JSON.parse(itemsJson) as MenuItem[];
+
+  // Save metadata to DB on every action that has items
+  const metaMap = extractMetaMap(items);
+  if (Object.keys(metaMap).length > 0) {
+    await prisma.menuMeta.upsert({
+      where: { shop_menuGid: { shop: session.shop, menuGid } },
+      create: { shop: session.shop, menuGid, data: JSON.stringify(metaMap) },
+      update: { data: JSON.stringify(metaMap) },
+    });
+  }
 
   if (intent === "save_draft") {
     await prisma.menuSnapshot.create({
@@ -435,6 +492,11 @@ function TreeNode({ item, isLast, depth }: { item: MenuItem; isLast: boolean; de
         <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 120 }}>
           {title}
         </span>
+        {item.handle && (
+          <span style={{ fontSize: 9, color: "#8C9196", fontStyle: "italic", whiteSpace: "nowrap" }}>
+            /{item.handle}
+          </span>
+        )}
         <span
           style={{
             fontSize: 9,
@@ -948,8 +1010,25 @@ function ExpandedForm({
           <TextField
             label="Title"
             value={item.title}
-            onChange={(val) => onChange({ ...item, title: val })}
+            onChange={(val) => {
+              const updated: MenuItem = { ...item, title: val };
+              // Auto-generate handle from title if handle was auto-generated or empty
+              if (!item.handle || item.handle === slugify(item.title)) {
+                updated.handle = slugify(val);
+              }
+              onChange(updated);
+            }}
             autoComplete="off"
+          />
+
+          {/* Handle */}
+          <TextField
+            label="Handle"
+            value={item.handle}
+            onChange={(val) => onChange({ ...item, handle: val })}
+            autoComplete="off"
+            prefix="/"
+            helpText="URL-friendly identifier for this item"
           />
 
           {/* Link Type Picker */}
@@ -957,6 +1036,47 @@ function ExpandedForm({
 
           {/* Smart URL Field */}
           <SmartUrlField item={item} onChange={onChange} />
+
+          {/* SEO Section */}
+          <div style={{ marginTop: 4 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                marginBottom: 8,
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="7" stroke="#2C6ECB" strokeWidth="1.5" fill="none" />
+                <path d="M5.5 8.5L7 10L10.5 6" stroke="#2C6ECB" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <Text as="span" variant="bodySm" fontWeight="semibold">
+                SEO Settings
+              </Text>
+            </div>
+            <BlockStack gap="200">
+              <TextField
+                label="SEO Keywords"
+                value={item.seoKeywords}
+                onChange={(val) => onChange({ ...item, seoKeywords: val })}
+                autoComplete="off"
+                placeholder="e.g. shoes, sneakers, running"
+                helpText="Comma-separated keywords for this menu item"
+              />
+              <TextField
+                label="Meta Description"
+                value={item.metaDescription}
+                onChange={(val) => onChange({ ...item, metaDescription: val })}
+                autoComplete="off"
+                placeholder="Brief description for search engines..."
+                multiline={2}
+                maxLength={160}
+                showCharacterCount
+                helpText="Recommended: 50-160 characters"
+              />
+            </BlockStack>
+          </div>
 
           {/* Add sub-item button */}
           {depth === 0 && (

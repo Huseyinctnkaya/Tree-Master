@@ -1,0 +1,15 @@
+api_version = "2026-04"
+
+[[extensions]]
+uid = "9a1085b2-b51e-b5f9-73e8-c639a101fe425b06adc1"
+type = "theme"
+name = "Tree Master Menu"
+handle = "tree-menu-block"
+
+  [[extensions.targeting]]
+  module = "./blocks/custom-menu.liquid"
+  target = "section"
+
+  [[extensions.targeting]]
+  module = "./blocks/custom-menu.liquid"
+  target = "block"

@@ -44,6 +44,33 @@ model MenuSnapshot {
   @@index([shop, menuGid])
 }
 
+// Extra metadata for menu items (handle, SEO, meta description)
+model MenuMeta {
+  id        String   @id @default(cuid())
+  shop      String
+  menuGid   String
+  data      String   // JSON: { [itemId]: { handle, seoKeywords, metaDescription } }
+  updatedAt DateTime @updatedAt
+
+  @@unique([shop, menuGid])
+  @@index([shop, menuGid])
+}
+
+// Custom code menus (HTML/CSS created in app)
+model CustomMenu {
+  id        String   @id @default(cuid())
+  shop      String
+  name      String
+  html      String   @default("")
+  css       String   @default("")
+  status    String   @default("draft") // draft | published
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([shop])
+  @@index([shop, status])
+}
+
 // Scheduled menu deployments
 model ScheduledDeploy {
   id         String   @id @default(cuid())

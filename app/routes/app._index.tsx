@@ -423,7 +423,7 @@ export default function Dashboard() {
             </Card>
 
             {/* Quick Actions */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
               <Card>
                 <BlockStack gap="300">
                   <Text as="h2" variant="headingMd">
@@ -442,6 +442,21 @@ export default function Dashboard() {
               <Card>
                 <BlockStack gap="300">
                   <Text as="h2" variant="headingMd">
+                    Custom Menus
+                  </Text>
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    Build menus with custom HTML & CSS code. Mega menus, sidebars, and more.
+                  </Text>
+                  <InlineStack>
+                    <Button variant="primary" url="/app/custom-menus">
+                      Custom Menus
+                    </Button>
+                  </InlineStack>
+                </BlockStack>
+              </Card>
+              <Card>
+                <BlockStack gap="300">
+                  <Text as="h2" variant="headingMd">
                     Import & Export
                   </Text>
                   <Text as="p" variant="bodySm" tone="subdued">
@@ -449,7 +464,7 @@ export default function Dashboard() {
                   </Text>
                   <InlineStack>
                     <Button variant="primary" url="/app/import-export">
-                      Import/Export Settings
+                      Import/Export
                     </Button>
                   </InlineStack>
                 </BlockStack>
