@@ -1,5 +1,5 @@
-import type { LoaderFunctionArgs } from "@remix-run/node";
-import { useLoaderData } from "@remix-run/react";
+import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
+import { useLoaderData, useSubmit, useNavigation } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -13,7 +13,7 @@ import {
   Badge,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
-import { authenticate } from "../shopify.server";
+import { getShopPlan, requestSubscription, cancelSubscription } from "../utils/billing.server";
 
 // ---- Plan Data ----
 
@@ -37,7 +37,6 @@ const PLANS = [
       { text: "Snapshot history & restore", included: false },
       { text: "Priority support", included: false },
     ],
-    action: null,
   },
   {
     name: "Premium",
@@ -58,16 +57,35 @@ const PLANS = [
       { text: "Priority email support", included: true },
       { text: "Early access to new features", included: true },
     ],
-    action: "Upgrade",
   },
 ];
 
 // ---- Loader ----
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
-  // TODO: fetch current plan from billing API
-  return { currentPlan: "free" };
+  const { isPremium } = await getShopPlan(request);
+  return { currentPlan: isPremium ? "premium" : "free" };
+};
+
+// ---- Action ----
+
+export const action = async ({ request }: ActionFunctionArgs) => {
+  const formData = await request.formData();
+  const intent = formData.get("intent") as string;
+
+  if (intent === "upgrade") {
+    // This will redirect the merchant to Shopify's billing approval screen
+    await requestSubscription(request);
+    // If we reach here, it means the redirect didn't happen (shouldn't normally)
+    return { success: true };
+  }
+
+  if (intent === "downgrade") {
+    const result = await cancelSubscription(request);
+    return result;
+  }
+
+  return { success: false };
 };
 
 // ---- Component ----
@@ -96,6 +114,22 @@ function CrossIcon() {
 
 export default function Pricing() {
   const { currentPlan } = useLoaderData<typeof loader>();
+  const submit = useSubmit();
+  const navigation = useNavigation();
+
+  const isSubmitting = navigation.state === "submitting";
+
+  const handleUpgrade = () => {
+    const formData = new FormData();
+    formData.set("intent", "upgrade");
+    submit(formData, { method: "post" });
+  };
+
+  const handleDowngrade = () => {
+    const formData = new FormData();
+    formData.set("intent", "downgrade");
+    submit(formData, { method: "post" });
+  };
 
   return (
     <Page backAction={{ content: "Dashboard", url: "/app" }} title="Plans">
@@ -119,8 +153,10 @@ export default function Pricing() {
             }}
           >
             {PLANS.map((plan) => {
-              const isCurrent =
-                currentPlan === plan.name.toLowerCase();
+              const planKey = plan.name.toLowerCase();
+              const isCurrent = currentPlan === planKey;
+              const isPremiumPlan = planKey === "premium";
+              const isFreePlan = planKey === "free";
 
               return (
                 <div key={plan.name}>
@@ -132,7 +168,7 @@ export default function Pricing() {
                           <Text as="h2" variant="headingLg">
                             {plan.name}
                           </Text>
-                          {plan.badge && (
+                          {plan.badge && !isCurrent && (
                             <Badge tone="info">{plan.badge}</Badge>
                           )}
                           {isCurrent && (
@@ -182,9 +218,22 @@ export default function Pricing() {
                           <Button disabled fullWidth>
                             Current Plan
                           </Button>
-                        ) : plan.action ? (
-                          <Button variant="primary" fullWidth>
-                            {plan.action}
+                        ) : isPremiumPlan ? (
+                          <Button
+                            variant="primary"
+                            fullWidth
+                            onClick={handleUpgrade}
+                            loading={isSubmitting}
+                          >
+                            Upgrade to Premium
+                          </Button>
+                        ) : isFreePlan && currentPlan === "premium" ? (
+                          <Button
+                            fullWidth
+                            onClick={handleDowngrade}
+                            loading={isSubmitting}
+                          >
+                            Downgrade to Free
                           </Button>
                         ) : (
                           <Button fullWidth disabled>
