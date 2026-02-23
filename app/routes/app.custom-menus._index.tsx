@@ -1,6 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
-import { useLoaderData, useSubmit, useNavigation, Link } from "@remix-run/react";
+import { useLoaderData, useSubmit, useNavigation, useNavigate, useActionData } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -86,11 +86,20 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 export default function CustomMenusList() {
   const { customMenus } = useLoaderData<typeof loader>();
+  const actionData = useActionData<typeof action>();
   const submit = useSubmit();
   const navigation = useNavigation();
+  const navigate = useNavigate();
   const shopify = useAppBridge();
 
   const [createOpen, setCreateOpen] = useState(false);
+
+  // Redirect to editor after creating a new menu
+  useEffect(() => {
+    if (actionData?.success && actionData?.menuId) {
+      navigate(`/app/custom-menus/${actionData.menuId}`);
+    }
+  }, [actionData, navigate]);
   const [menuName, setMenuName] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
@@ -220,7 +229,7 @@ export default function CustomMenusList() {
                             </InlineStack>
                           </BlockStack>
                           <InlineStack gap="200">
-                            <Button size="micro" url={`/app/custom-menus/${menu.id}`}>
+                            <Button size="micro" onClick={() => navigate(`/app/custom-menus/${menu.id}`)}>
                               Edit
                             </Button>
                             <Button size="micro" onClick={() => handleDuplicate(menu.id)}>
