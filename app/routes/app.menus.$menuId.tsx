@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { useLoaderData, useSubmit, useNavigation, useActionData } from "@remix-run/react";
 import {
@@ -14,7 +15,6 @@ import {
   Divider,
   Banner,
   Box,
-  Select,
   Icon,
   Tooltip,
 } from "@shopify/polaris";
@@ -88,54 +88,168 @@ const UPDATE_MENU_MUTATION = `#graphql
   }
 `;
 
-// ---- Menu Item Types ----
+// ---- Link Type System ----
 
-const MENU_ITEM_TYPES = [
-  { value: "HTTP", label: "Custom URL" },
-  { value: "FRONTPAGE", label: "Home" },
-  { value: "CATALOG", label: "All Products" },
-  { value: "SEARCH", label: "Search" },
-  { value: "COLLECTION", label: "Collection" },
-  { value: "PRODUCT", label: "Product" },
-  { value: "PAGE", label: "Page" },
-  { value: "BLOG", label: "Blog" },
-  { value: "ARTICLE", label: "Article" },
+type LinkTypeOption = {
+  value: string;
+  label: string;
+  shopifyType: string;
+  autoUrl?: string;
+  urlPrefix?: string;
+  placeholder?: string;
+};
+
+type LinkCategory = {
+  id: string;
+  label: string;
+  options: LinkTypeOption[];
+};
+
+const LINK_CATEGORIES: LinkCategory[] = [
+  {
+    id: "internal",
+    label: "Internal Pages",
+    options: [
+      { value: "FRONTPAGE", label: "Home", shopifyType: "FRONTPAGE", autoUrl: "/" },
+      { value: "CATALOG", label: "All Products", shopifyType: "CATALOG", autoUrl: "/collections/all" },
+      { value: "SEARCH", label: "Search", shopifyType: "SEARCH", autoUrl: "/search" },
+    ],
+  },
+  {
+    id: "content",
+    label: "Store Content",
+    options: [
+      { value: "COLLECTION", label: "Collection", shopifyType: "COLLECTION", placeholder: "/collections/..." },
+      { value: "PRODUCT", label: "Product", shopifyType: "PRODUCT", placeholder: "/products/..." },
+      { value: "PAGE", label: "Page", shopifyType: "PAGE", placeholder: "/pages/..." },
+      { value: "BLOG", label: "Blog", shopifyType: "BLOG", placeholder: "/blogs/..." },
+      { value: "ARTICLE", label: "Article", shopifyType: "ARTICLE", placeholder: "/blogs/.../article" },
+    ],
+  },
+  {
+    id: "account",
+    label: "Customer Account",
+    options: [
+      { value: "_ACCOUNT", label: "Account", shopifyType: "HTTP", autoUrl: "/account" },
+      { value: "_LOGIN", label: "Login", shopifyType: "HTTP", autoUrl: "/account/login" },
+      { value: "_REGISTER", label: "Register", shopifyType: "HTTP", autoUrl: "/account/register" },
+      { value: "_CART", label: "Cart", shopifyType: "HTTP", autoUrl: "/cart" },
+    ],
+  },
+  {
+    id: "policies",
+    label: "Policies",
+    options: [
+      { value: "_TERMS", label: "Terms of Service", shopifyType: "HTTP", autoUrl: "/policies/terms-of-service" },
+      { value: "_PRIVACY", label: "Privacy Policy", shopifyType: "HTTP", autoUrl: "/policies/privacy-policy" },
+      { value: "_REFUND", label: "Refund Policy", shopifyType: "HTTP", autoUrl: "/policies/refund-policy" },
+      { value: "_SHIPPING", label: "Shipping Policy", shopifyType: "HTTP", autoUrl: "/policies/shipping-policy" },
+    ],
+  },
+  {
+    id: "custom",
+    label: "Custom Links",
+    options: [
+      { value: "HTTP", label: "Custom URL", shopifyType: "HTTP", placeholder: "https://example.com" },
+      { value: "_EMAIL", label: "Email", shopifyType: "HTTP", urlPrefix: "mailto:", placeholder: "hello@example.com" },
+      { value: "_PHONE", label: "Phone", shopifyType: "HTTP", urlPrefix: "tel:", placeholder: "+1 (555) 123-4567" },
+      { value: "_ANCHOR", label: "Anchor", shopifyType: "HTTP", urlPrefix: "#", placeholder: "section-name" },
+    ],
+  },
 ];
 
-const TYPE_LABELS: Record<string, string> = {};
-for (const t of MENU_ITEM_TYPES) TYPE_LABELS[t.value] = t.label;
+// Flat lookup maps
+const ALL_LINK_TYPES: Record<string, LinkTypeOption> = {};
+for (const cat of LINK_CATEGORIES) {
+  for (const opt of cat.options) {
+    ALL_LINK_TYPES[opt.value] = opt;
+  }
+}
 
-const AUTO_TYPES = ["FRONTPAGE", "CATALOG", "SEARCH"];
-const URL_TYPES = ["HTTP", "FRONTEND_PAGE"];
+const CATEGORY_COLORS: Record<string, { bg: string; text: string }> = {
+  internal: { bg: "#E3F4E8", text: "#1B7B3D" },
+  content: { bg: "#E8F0FE", text: "#2C6ECB" },
+  account: { bg: "#F3E8FF", text: "#7C3AED" },
+  policies: { bg: "#FFF3E0", text: "#B45309" },
+  custom: { bg: "#F1F1F1", text: "#616161" },
+};
+
+function getCategoryForType(type: string): string {
+  for (const cat of LINK_CATEGORIES) {
+    if (cat.options.some((o) => o.value === type)) return cat.id;
+  }
+  return "custom";
+}
+
+// Shopify auto types (don't need url/resourceId)
+const SHOPIFY_AUTO_TYPES = ["FRONTPAGE", "CATALOG", "SEARCH"];
 
 // ---- Helpers ----
 
+function detectAppType(shopifyType: string, url: string): string {
+  if (shopifyType !== "HTTP") return shopifyType;
+  const u = url || "";
+  if (u === "/account" || u.endsWith("/account")) return "_ACCOUNT";
+  if (u === "/account/login" || u.endsWith("/account/login")) return "_LOGIN";
+  if (u === "/account/register" || u.endsWith("/account/register")) return "_REGISTER";
+  if (u === "/cart" || u.endsWith("/cart")) return "_CART";
+  if (u.includes("/policies/terms-of-service")) return "_TERMS";
+  if (u.includes("/policies/privacy-policy")) return "_PRIVACY";
+  if (u.includes("/policies/refund-policy")) return "_REFUND";
+  if (u.includes("/policies/shipping-policy")) return "_SHIPPING";
+  if (u.startsWith("mailto:")) return "_EMAIL";
+  if (u.startsWith("tel:")) return "_PHONE";
+  if (u.startsWith("#")) return "_ANCHOR";
+  return "HTTP";
+}
+
+function stripUrlForDisplay(appType: string, url: string): string {
+  if (appType === "_EMAIL" && url.startsWith("mailto:")) return url.slice(7);
+  if (appType === "_PHONE" && url.startsWith("tel:")) return url.slice(4);
+  if (appType === "_ANCHOR" && url.startsWith("#")) return url.slice(1);
+  const typeInfo = ALL_LINK_TYPES[appType];
+  if (typeInfo?.autoUrl) return "";
+  return url;
+}
+
 function normalizeItems(items: any[]): MenuItem[] {
-  return (items ?? []).map((item) => ({
-    id: item.id,
-    title: item.title ?? "",
-    url: item.url ?? "",
-    type: item.type ?? "HTTP",
-    resourceId: item.resourceId ?? null,
-    items: normalizeItems(item.items ?? []),
-  }));
+  return (items ?? []).map((item) => {
+    const appType = detectAppType(item.type ?? "HTTP", item.url ?? "");
+    return {
+      id: item.id,
+      title: item.title ?? "",
+      url: stripUrlForDisplay(appType, item.url ?? ""),
+      type: appType,
+      resourceId: item.resourceId ?? null,
+      items: normalizeItems(item.items ?? []),
+    };
+  });
 }
 
 function buildUpdateInput(items: MenuItem[]): object[] {
   return items.map((item) => {
+    const typeInfo = ALL_LINK_TYPES[item.type];
+    const shopifyType = typeInfo?.shopifyType || item.type;
+
     const input: Record<string, unknown> = {
       title: item.title,
-      type: item.type,
+      type: shopifyType,
     };
 
     if (!item.id.startsWith("new-")) {
       input.id = item.id;
     }
 
-    if (URL_TYPES.includes(item.type)) {
+    if (typeInfo?.autoUrl && shopifyType === "HTTP") {
+      // App-level auto types (account, policies, cart) → set URL
+      input.url = typeInfo.autoUrl;
+    } else if (typeInfo?.urlPrefix) {
+      // Prefix types (email, phone, anchor)
+      input.url = typeInfo.urlPrefix + item.url;
+    } else if (SHOPIFY_AUTO_TYPES.includes(shopifyType)) {
+      // Shopify auto types (FRONTPAGE, CATALOG, SEARCH) → no url needed
+    } else if (shopifyType === "HTTP") {
       input.url = item.url;
-    } else if (AUTO_TYPES.includes(item.type)) {
-      // Auto types don't need url or resourceId
     } else if (item.url) {
       input.url = item.url;
     } else if (item.resourceId) {
@@ -301,8 +415,10 @@ function TreeNode({ item, isLast, depth }: { item: MenuItem; isLast: boolean; de
   const connector = isLast ? "└─" : "├─";
   const title = item.title || "(Untitled)";
   const hasChildren = item.items && item.items.length > 0;
-  const typeLabel = TYPE_LABELS[item.type] || item.type;
-  const isAuto = AUTO_TYPES.includes(item.type);
+  const typeInfo = ALL_LINK_TYPES[item.type];
+  const typeLabel = typeInfo?.label || item.type;
+  const category = getCategoryForType(item.type);
+  const colors = CATEGORY_COLORS[category] || CATEGORY_COLORS.custom;
 
   return (
     <div>
@@ -319,20 +435,18 @@ function TreeNode({ item, isLast, depth }: { item: MenuItem; isLast: boolean; de
         <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 120 }}>
           {title}
         </span>
-        {isAuto && (
-          <span
-            style={{
-              fontSize: 9,
-              background: "#E4E5E7",
-              color: "#6D7175",
-              padding: "1px 4px",
-              borderRadius: 3,
-              whiteSpace: "nowrap",
-            }}
-          >
-            {typeLabel}
-          </span>
-        )}
+        <span
+          style={{
+            fontSize: 9,
+            background: colors.bg,
+            color: colors.text,
+            padding: "1px 4px",
+            borderRadius: 3,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {typeLabel}
+        </span>
       </div>
       {hasChildren &&
         item.items.map((child, ci) => (
@@ -371,7 +485,10 @@ function ItemRow({
   onDragLeave: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
 }) {
-  const typeLabel = TYPE_LABELS[item.type] || item.type;
+  const typeInfo = ALL_LINK_TYPES[item.type];
+  const typeLabel = typeInfo?.label || item.type;
+  const category = getCategoryForType(item.type);
+  const colors = CATEGORY_COLORS[category] || CATEGORY_COLORS.custom;
   const title = item.title || "(Untitled)";
   const isEmpty = !item.title;
 
@@ -438,8 +555,19 @@ function ItemRow({
             {title}
           </Text>
         </div>
-        <div style={{ flexShrink: 0 }}>
-          <Badge>{typeLabel}</Badge>
+        <div
+          style={{
+            flexShrink: 0,
+            padding: "2px 8px",
+            borderRadius: 4,
+            background: colors.bg,
+            color: colors.text,
+            fontSize: 11,
+            fontWeight: 500,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {typeLabel}
         </div>
         <div
           style={{ flexShrink: 0, display: "flex", cursor: "pointer", color: "#8C9196" }}
@@ -454,6 +582,270 @@ function ItemRow({
         </div>
       </div>
     </div>
+  );
+}
+
+// ---- Link Type Picker (Dropdown) ----
+
+function LinkTypePicker({ value, onChange }: { value: string; onChange: (type: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const dropRef = useRef<HTMLDivElement>(null);
+  const typeInfo = ALL_LINK_TYPES[value];
+  const category = getCategoryForType(value);
+  const colors = CATEGORY_COLORS[category] || CATEGORY_COLORS.custom;
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e: MouseEvent) => {
+      if (
+        btnRef.current?.contains(e.target as Node) ||
+        dropRef.current?.contains(e.target as Node)
+      ) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  // Keep position synced with button while open
+  useEffect(() => {
+    if (!open || !btnRef.current) return;
+    const update = () => {
+      if (!btnRef.current) return;
+      const rect = btnRef.current.getBoundingClientRect();
+      setPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+    };
+    update();
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [open]);
+
+  const handleOpen = useCallback(() => {
+    setOpen((v) => !v);
+  }, []);
+
+  const dropdown = open
+    ? createPortal(
+        <div
+          ref={dropRef}
+          style={{
+            position: "fixed",
+            top: pos.top,
+            left: pos.left,
+            width: pos.width,
+            background: "white",
+            border: "1px solid #E1E3E5",
+            borderRadius: 10,
+            boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+            zIndex: 99999,
+            maxHeight: 340,
+            overflowY: "auto",
+            padding: "6px 0",
+          }}
+        >
+          {LINK_CATEGORIES.map((cat) => {
+            const catColors = CATEGORY_COLORS[cat.id] || CATEGORY_COLORS.custom;
+            return (
+              <div key={cat.id}>
+                <div style={{ padding: "6px 14px 2px", fontSize: 11, fontWeight: 600, color: "#8C9196", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  {cat.label}
+                </div>
+                {cat.options.map((opt) => {
+                  const isSelected = opt.value === value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => {
+                        onChange(opt.value);
+                        setOpen(false);
+                      }}
+                      style={{
+                        width: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "7px 14px",
+                        border: "none",
+                        background: isSelected ? catColors.bg : "transparent",
+                        color: isSelected ? catColors.text : "#303030",
+                        fontSize: 13,
+                        fontWeight: isSelected ? 600 : 400,
+                        cursor: "pointer",
+                        textAlign: "left",
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isSelected) e.currentTarget.style.background = "#F6F6F7";
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isSelected) e.currentTarget.style.background = "transparent";
+                      }}
+                    >
+                      {isSelected && (
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                          <path d="M2 7L5.5 10.5L12 3.5" stroke={catColors.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>,
+        document.body,
+      )
+    : null;
+
+  return (
+    <div>
+      <Text as="p" variant="bodySm" fontWeight="semibold">
+        Link to
+      </Text>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={handleOpen}
+        style={{
+          marginTop: 4,
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "8px 12px",
+          borderRadius: 8,
+          border: "1px solid #C9CCCF",
+          background: "white",
+          cursor: "pointer",
+          fontSize: 13,
+        }}
+      >
+        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span
+            style={{
+              padding: "1px 6px",
+              borderRadius: 4,
+              background: colors.bg,
+              color: colors.text,
+              fontSize: 11,
+              fontWeight: 600,
+            }}
+          >
+            {typeInfo?.label || value}
+          </span>
+          <span style={{ color: "#6D7175", fontSize: 12 }}>
+            {LINK_CATEGORIES.find((c) => c.id === category)?.label}
+          </span>
+        </span>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
+          <path d="M3 4.5L6 7.5L9 4.5" stroke="#6D7175" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {dropdown}
+    </div>
+  );
+}
+
+// ---- Smart URL Field ----
+
+function SmartUrlField({
+  item,
+  onChange,
+}: {
+  item: MenuItem;
+  onChange: (updated: MenuItem) => void;
+}) {
+  const typeInfo = ALL_LINK_TYPES[item.type];
+  if (!typeInfo) return null;
+
+  // Auto URL types (Home, Search, Account pages, Policies)
+  if (typeInfo.autoUrl) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          background: "#F1F8F5",
+          border: "1px solid #C9E8D9",
+          borderRadius: 8,
+          padding: "8px 12px",
+        }}
+      >
+        <div
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: "#1B7B3D",
+            flexShrink: 0,
+          }}
+        />
+        <Text as="p" variant="bodySm">
+          Links to{" "}
+          <span style={{ fontWeight: 600, fontFamily: "monospace", fontSize: 12 }}>
+            {typeInfo.autoUrl}
+          </span>{" "}
+          automatically
+        </Text>
+      </div>
+    );
+  }
+
+  // Prefix types (Email, Phone, Anchor)
+  if (typeInfo.urlPrefix) {
+    return (
+      <TextField
+        label={typeInfo.label}
+        value={item.url}
+        onChange={(val) => onChange({ ...item, url: val })}
+        autoComplete="off"
+        placeholder={typeInfo.placeholder}
+        prefix={typeInfo.urlPrefix}
+      />
+    );
+  }
+
+  // Custom URL
+  if (item.type === "HTTP") {
+    return (
+      <TextField
+        label="URL"
+        value={item.url}
+        onChange={(val) => onChange({ ...item, url: val })}
+        autoComplete="off"
+        placeholder="https://"
+      />
+    );
+  }
+
+  // Resource types (Collection, Product, Page, etc.)
+  if (item.resourceId) {
+    return (
+      <TextField
+        label="Linked resource"
+        value={item.resourceId}
+        disabled
+        autoComplete="off"
+      />
+    );
+  }
+
+  return (
+    <TextField
+      label="URL"
+      value={item.url}
+      onChange={(val) => onChange({ ...item, url: val })}
+      autoComplete="off"
+      placeholder={typeInfo.placeholder || "Enter URL"}
+    />
   );
 }
 
@@ -490,16 +882,14 @@ function ExpandedForm({
   dragOverSubId: string | null;
   dragSubPosition: "above" | "below" | null;
 }) {
-  const isAutoType = AUTO_TYPES.includes(item.type);
-  const showUrlField = URL_TYPES.includes(item.type) || (!isAutoType && !item.resourceId);
-
   const handleTypeChange = useCallback(
     (val: string) => {
+      const typeInfo = ALL_LINK_TYPES[val];
       const updated: MenuItem = { ...item, type: val };
-      if (AUTO_TYPES.includes(val)) {
+      if (typeInfo?.autoUrl || typeInfo?.urlPrefix) {
         updated.url = "";
         updated.resourceId = null;
-      } else if (URL_TYPES.includes(val)) {
+      } else if (val === "HTTP") {
         updated.resourceId = null;
       }
       onChange(updated);
@@ -534,7 +924,6 @@ function ExpandedForm({
       style={{
         border: "1px solid #E1E3E5",
         borderRadius: 10,
-        overflow: "hidden",
         boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
       }}
     >
@@ -563,45 +952,11 @@ function ExpandedForm({
             autoComplete="off"
           />
 
-          {/* Type + URL/Resource */}
-          <InlineStack gap="300" blockAlign="end">
-            <div style={{ minWidth: 160 }}>
-              <Select
-                label="Type"
-                options={MENU_ITEM_TYPES}
-                value={item.type}
-                onChange={handleTypeChange}
-              />
-            </div>
-            {showUrlField && (
-              <div style={{ flex: 1 }}>
-                <TextField
-                  label="URL"
-                  value={item.url}
-                  onChange={(val) => onChange({ ...item, url: val })}
-                  autoComplete="off"
-                  placeholder="https://"
-                />
-              </div>
-            )}
-            {!showUrlField && item.resourceId && (
-              <div style={{ flex: 1 }}>
-                <TextField
-                  label="Linked resource"
-                  value={item.resourceId}
-                  disabled
-                  autoComplete="off"
-                />
-              </div>
-            )}
-            {isAutoType && !item.resourceId && (
-              <div style={{ flex: 1, paddingTop: 24 }}>
-                <Text as="p" variant="bodySm" tone="subdued">
-                  This link is set automatically.
-                </Text>
-              </div>
-            )}
-          </InlineStack>
+          {/* Link Type Picker */}
+          <LinkTypePicker value={item.type} onChange={handleTypeChange} />
+
+          {/* Smart URL Field */}
+          <SmartUrlField item={item} onChange={onChange} />
 
           {/* Add sub-item button */}
           {depth === 0 && (
@@ -973,7 +1328,7 @@ export default function MenuEditor() {
                   <Text as="h2" variant="headingMd">
                     Menu Items
                   </Text>
-                  <Badge tone="info">{String(totalItemCount)} items</Badge>
+                  <Badge tone="info">{`${totalItemCount} items`}</Badge>
                 </InlineStack>
               </Box>
               <Divider />
@@ -1064,13 +1419,9 @@ export default function MenuEditor() {
                     })}
                   </BlockStack>
 
-                  <div style={{ padding: "8px 0 4px" }}>
-                    <Button onClick={handleAddItem} icon={
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                        <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                      </svg>
-                    }>
-                      Add menu item
+                  <div style={{ padding: "12px 0 4px" }}>
+                    <Button variant="primary" onClick={handleAddItem}>
+                      + Add menu item
                     </Button>
                   </div>
                 </div>
