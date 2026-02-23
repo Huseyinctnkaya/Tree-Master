@@ -289,6 +289,9 @@ function ItemRow({
       )}
 
       <div
+        draggable
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
         onClick={onToggle}
         style={{
           display: "flex",
@@ -296,7 +299,7 @@ function ItemRow({
           gap: 8,
           padding: "10px 12px",
           paddingLeft: depth > 0 ? 44 : 12,
-          cursor: "pointer",
+          cursor: "grab",
           background: isExpanded ? "#F6F6F7" : "transparent",
           borderRadius: 8,
           transition: "background 0.1s ease",
@@ -308,17 +311,12 @@ function ItemRow({
           if (!isExpanded) e.currentTarget.style.background = "transparent";
         }}
       >
-        {/* Drag handle */}
+        {/* Drag handle icon */}
         <div
-          draggable
-          onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
-          onClick={(e) => e.stopPropagation()}
           style={{
             flexShrink: 0,
             color: "#8C9196",
             display: "flex",
-            cursor: "grab",
           }}
         >
           <Icon source={DragHandleIcon} />
