@@ -58,17 +58,17 @@
         <style>{{ block.settings.custom_css }}</style>
       {% endif %}
 
+      {% assign layout = block.settings.layout %}
+      {% if layout == "mega" %}
+        {% assign layout_class = "tree-menu__list--mega" %}
+      {% elsif layout == "vertical" %}
+        {% assign layout_class = "tree-menu__list--vertical" %}
+      {% else %}
+        {% assign layout_class = "tree-menu__list--horizontal" %}
+      {% endif %}
+
       <nav class="tree-menu" role="navigation" aria-label="{{ linklists[menu_handle].title }}">
-        {% assign layout = block.settings.layout %}
-
-        {% if layout == "horizontal" %}
-          <ul class="tree-menu__list tree-menu__list--horizontal">
-        {% elsif layout == "mega" %}
-          <ul class="tree-menu__list tree-menu__list--mega">
-        {% else %}
-          <ul class="tree-menu__list tree-menu__list--vertical">
-        {% endif %}
-
+        <ul class="tree-menu__list {{ layout_class }}">
           {% for link in linklists[menu_handle].links %}
             <li class="tree-menu__item{% if link.links.size > 0 %} tree-menu__item--has-children{% endif %}{% if link.active %} tree-menu__item--active{% endif %}">
               <a href="{{ link.url }}" class="tree-menu__link"{% if link.current %} aria-current="page"{% endif %}>

@@ -1,0 +1,25 @@
+{
+  "name": "Tree Master Menu",
+  "settings": {
+    "mode": {
+      "label": "Menu Mode",
+      "options__1": "Shopify Menu",
+      "options__2": "Custom Code"
+    },
+    "menu_handle": {
+      "label": "Shopify Menu"
+    },
+    "custom_menu_id": {
+      "label": "Custom Menu ID"
+    },
+    "layout": {
+      "label": "Layout",
+      "options__1": "Horizontal",
+      "options__2": "Vertical",
+      "options__3": "Mega Menu"
+    },
+    "custom_css": {
+      "label": "Additional CSS"
+    }
+  }
+}
