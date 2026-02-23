@@ -125,7 +125,7 @@ function PendingIcon({ active }: { active: boolean }) {
 }
 
 export default function Dashboard() {
-  const { totalMenus, totalItems } = useLoaderData<typeof loader>();
+  useLoaderData<typeof loader>();
 
   const [guideOpen, setGuideOpen] = useState(true);
   const [guideVisible, setGuideVisible] = useState(true);
@@ -157,30 +157,15 @@ export default function Dashboard() {
         <Layout.Section>
           <BlockStack gap="500">
             {/* Hero */}
-            <Card>
-              <BlockStack gap="400">
-                <BlockStack gap="200">
-                  <InlineStack gap="300" blockAlign="center">
-                    <Text as="h1" variant="headingXl">
-                      Tree Master
-                    </Text>
-                    <Badge tone="success">Active</Badge>
-                  </InlineStack>
-                  <Text as="p" variant="bodyLg" tone="subdued">
-                    Manage your Shopify store's navigation menus — edit items,
-                    save drafts, and deploy changes safely.
-                  </Text>
-                </BlockStack>
-                <InlineStack gap="400" blockAlign="center">
-                  <Button variant="primary" url="/app/menus">
-                    View all menus
-                  </Button>
-                  <Text as="span" variant="bodySm" tone="subdued">
-                    {totalMenus} menus · {totalItems} items
-                  </Text>
-                </InlineStack>
-              </BlockStack>
-            </Card>
+            <BlockStack gap="200">
+              <Text as="h1" variant="headingXl">
+                Tree Master
+              </Text>
+              <Text as="p" variant="bodyMd" tone="subdued">
+                Manage your Shopify store's navigation menus — edit items,
+                save drafts, and deploy changes safely.
+              </Text>
+            </BlockStack>
 
             {/* Setup Guide */}
             <Card padding="0">
@@ -289,6 +274,40 @@ export default function Dashboard() {
                 </div>
               )}
             </Card>
+
+            {/* Quick Actions */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              <Card>
+                <BlockStack gap="300">
+                  <Text as="h2" variant="headingMd">
+                    Menus
+                  </Text>
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    View and manage your store's navigation menus, edit items, and deploy changes.
+                  </Text>
+                  <InlineStack>
+                    <Button variant="primary" url="/app/menus">
+                      View Menus
+                    </Button>
+                  </InlineStack>
+                </BlockStack>
+              </Card>
+              <Card>
+                <BlockStack gap="300">
+                  <Text as="h2" variant="headingMd">
+                    Import & Export
+                  </Text>
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    Backup your menus and settings, or transfer them to another store.
+                  </Text>
+                  <InlineStack>
+                    <Button variant="primary" url="/app/import-export">
+                      Import/Export Settings
+                    </Button>
+                  </InlineStack>
+                </BlockStack>
+              </Card>
+            </div>
 
             {/* Help & Support */}
             <Card>
