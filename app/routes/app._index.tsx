@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { useLoaderData } from "@remix-run/react";
 import {
@@ -12,8 +12,9 @@ import {
   Box,
   Divider,
   Badge,
+  Icon,
 } from "@shopify/polaris";
-import { ChevronUpIcon, ChevronDownIcon } from "@shopify/polaris-icons";
+import { ChevronUpIcon, ChevronDownIcon, EmailIcon, QuestionCircleIcon } from "@shopify/polaris-icons";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 
@@ -63,9 +64,10 @@ const STEPS = [
   {
     id: "2",
     title: "Browse your menus",
-    description: null,
+    description:
+      "View all your store's navigation menus and their structure.",
     done: false,
-    action: null,
+    action: { label: "Browse menus", url: "/app/menus" },
   },
   {
     id: "3",
@@ -126,8 +128,27 @@ export default function Dashboard() {
   const { totalMenus, totalItems } = useLoaderData<typeof loader>();
 
   const [guideOpen, setGuideOpen] = useState(true);
-  const defaultActiveStep = STEPS.findIndex((step) => step.id === "3");
-  const [activeStep, setActiveStep] = useState(defaultActiveStep);
+  const [guideVisible, setGuideVisible] = useState(true);
+  const stepsRef = useRef<HTMLDivElement>(null);
+  const [activeStep, setActiveStep] = useState(-1);
+
+  const toggleGuide = useCallback(() => {
+    if (guideOpen) {
+      // Closing: animate first, then hide
+      setGuideVisible(false);
+      setTimeout(() => setGuideOpen(false), 250);
+    } else {
+      // Opening: show first, then animate
+      setGuideOpen(true);
+      requestAnimationFrame(() => setGuideVisible(true));
+    }
+  }, [guideOpen]);
+
+  useEffect(() => {
+    if (guideOpen) {
+      requestAnimationFrame(() => setGuideVisible(true));
+    }
+  }, [guideOpen]);
 
   return (
     <Page>
@@ -165,86 +186,165 @@ export default function Dashboard() {
             <Card padding="0">
               {/* Header */}
               <Box paddingBlock="400" paddingInline="400">
-                <InlineStack align="space-between" blockAlign="center">
-                  <BlockStack gap="100">
-                    <InlineStack gap="300" blockAlign="center">
+                <BlockStack gap="100">
+                  <InlineStack align="space-between" blockAlign="center">
+                    <InlineStack gap="300" blockAlign="center" wrap={false}>
                       <Text as="h2" variant="headingMd">
                         Setup Guide
                       </Text>
                       <Badge>{`${completedCount} / ${STEPS.length} completed`}</Badge>
                     </InlineStack>
-                    {guideOpen && (
-                      <Text as="p" variant="bodySm" tone="subdued">
-                        Use this personalized guide to get your app up and running.
-                      </Text>
-                    )}
-                  </BlockStack>
-                  <Button
-                    variant="plain"
-                    icon={guideOpen ? ChevronUpIcon : ChevronDownIcon}
-                    onClick={() => setGuideOpen((o) => !o)}
-                    accessibilityLabel={guideOpen ? "Collapse" : "Expand"}
-                  />
-                </InlineStack>
+                    <Button
+                      variant="plain"
+                      icon={guideOpen ? ChevronUpIcon : ChevronDownIcon}
+                      onClick={toggleGuide}
+                      accessibilityLabel={guideOpen ? "Collapse" : "Expand"}
+                    />
+                  </InlineStack>
+                  {guideOpen && (
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      Use this personalized guide to get your app up and running.
+                    </Text>
+                  )}
+                </BlockStack>
               </Box>
 
               {/* Steps */}
               {guideOpen && (
-                <BlockStack gap="0">
-                  {STEPS.map((step, index) => {
-                    const isActive = !step.done && index === activeStep;
+                <div
+                  ref={stepsRef}
+                  style={{
+                    overflow: "hidden",
+                    maxHeight: guideVisible ? 600 : 0,
+                    opacity: guideVisible ? 1 : 0,
+                    transition: "max-height 0.25s ease, opacity 0.2s ease",
+                  }}
+                >
+                  <BlockStack gap="0">
+                    {STEPS.map((step, index) => {
+                      const isActive = index === activeStep;
 
-                    return (
-                      <div key={step.id}>
-                        <Divider />
-                        <Box
-                          paddingBlock="400"
-                          paddingInline="400"
-                        >
-                          <div
-                            style={{ cursor: step.done ? "default" : "pointer" }}
-                            onClick={() => {
-                              if (!step.done) setActiveStep(index);
-                            }}
+                      return (
+                        <div key={step.id}>
+                          <Divider />
+                          <Box
+                            paddingBlock="400"
+                            paddingInline="400"
                           >
-                            <InlineStack gap="400" blockAlign="center">
-                              {step.done ? <DoneIcon /> : <PendingIcon active={isActive} />}
+                            <div
+                              style={{ cursor: "pointer" }}
+                              onClick={() => {
+                                setActiveStep(isActive ? -1 : index);
+                              }}
+                            >
+                              <InlineStack gap="400" blockAlign="center">
+                                {step.done ? <DoneIcon /> : <PendingIcon active={isActive} />}
 
-                              <BlockStack gap="100">
-                                <Text
-                                  as="span"
-                                  variant="bodyMd"
-                                  fontWeight={isActive ? "semibold" : "regular"}
-                                >
-                                  {step.title}
-                                </Text>
-                              </BlockStack>
-                            </InlineStack>
-                          </div>
-
-                          {/* Expanded content */}
-                          {isActive && step.description && (
-                            <Box paddingBlockStart="200" paddingInlineStart="1200">
-                              <BlockStack gap="300">
-                                <Text as="p" variant="bodySm" tone="subdued">
-                                  {step.description}
-                                </Text>
-                                {step.action && (
-                                  <InlineStack>
-                                    <Button size="micro" url={step.action.url}>
-                                      {step.action.label}
-                                    </Button>
+                                <BlockStack gap="100">
+                                  <InlineStack gap="200" blockAlign="center">
+                                    <Text
+                                      as="span"
+                                      variant="bodyMd"
+                                      fontWeight={isActive ? "semibold" : "regular"}
+                                    >
+                                      {step.title}
+                                    </Text>
+                                    {step.done && (
+                                      <Badge tone="success">Completed</Badge>
+                                    )}
                                   </InlineStack>
-                                )}
-                              </BlockStack>
-                            </Box>
-                          )}
-                        </Box>
-                      </div>
-                    );
-                  })}
-                </BlockStack>
+                                </BlockStack>
+                              </InlineStack>
+                            </div>
+
+                            {/* Expanded content */}
+                            <div
+                              style={{
+                                overflow: "hidden",
+                                maxHeight: isActive && step.description ? 200 : 0,
+                                opacity: isActive && step.description ? 1 : 0,
+                                transition: "max-height 0.2s ease, opacity 0.15s ease",
+                              }}
+                            >
+                              <Box paddingBlockStart="200" paddingInlineStart="1200">
+                                <BlockStack gap="300">
+                                  <Text as="p" variant="bodySm" tone="subdued">
+                                    {step.description}
+                                  </Text>
+                                  {step.action && (
+                                    <InlineStack>
+                                      <Button variant="primary" url={step.action.url}>
+                                        {step.action.label}
+                                      </Button>
+                                    </InlineStack>
+                                  )}
+                                </BlockStack>
+                              </Box>
+                            </div>
+                          </Box>
+                        </div>
+                      );
+                    })}
+                  </BlockStack>
+                </div>
               )}
+            </Card>
+
+            {/* Help & Support */}
+            <Card>
+              <BlockStack gap="400">
+                <Text as="h2" variant="headingMd">
+                  Need help or customization?
+                </Text>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                  <div
+                    style={{
+                      border: "1px solid #E1E3E5",
+                      borderRadius: 12,
+                      padding: 16,
+                      cursor: "pointer",
+                    }}
+                    onClick={() => window.open("mailto:support@treemaster.app")}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ display: "flex", flexShrink: 0 }}>
+                        <Icon source={EmailIcon} />
+                      </div>
+                      <Text as="span" variant="bodyMd" fontWeight="semibold">
+                        Email Support
+                      </Text>
+                    </div>
+                    <div style={{ marginTop: 6 }}>
+                      <Text as="p" variant="bodySm" tone="subdued">
+                        Send us an email and we'll get back to you as soon as possible.
+                      </Text>
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      border: "1px solid #E1E3E5",
+                      borderRadius: 12,
+                      padding: 16,
+                      cursor: "pointer",
+                    }}
+                    onClick={() => window.open("https://treemaster.app/docs", "_blank")}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ display: "flex", flexShrink: 0 }}>
+                        <Icon source={QuestionCircleIcon} />
+                      </div>
+                      <Text as="span" variant="bodyMd" fontWeight="semibold">
+                        Documentation
+                      </Text>
+                    </div>
+                    <div style={{ marginTop: 6 }}>
+                      <Text as="p" variant="bodySm" tone="subdued">
+                        Find solutions with our docs and tutorials.
+                      </Text>
+                    </div>
+                  </div>
+                </div>
+              </BlockStack>
             </Card>
           </BlockStack>
         </Layout.Section>
