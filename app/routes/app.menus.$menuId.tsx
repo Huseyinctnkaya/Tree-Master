@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
-import { useLoaderData, useSubmit, useNavigation, useActionData } from "@remix-run/react";
+import { useLoaderData, useSubmit, useNavigation, useActionData, useFetcher } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -17,6 +17,8 @@ import {
   Box,
   Icon,
   Tooltip,
+  Modal,
+  Spinner,
 } from "@shopify/polaris";
 import { DeleteIcon, DragHandleIcon, CalendarIcon, ClockIcon } from "@shopify/polaris-icons";
 import { TitleBar, SaveBar, useAppBridge } from "@shopify/app-bridge-react";
@@ -826,6 +828,8 @@ function LinkTypePicker({ value, onChange }: { value: string; onChange: (type: s
 
 // ---- Smart URL Field ----
 
+type ResourceLoaderData = { resources: Array<{ id: string; title: string; url: string }> };
+
 function SmartUrlField({
   item,
   onChange,
@@ -834,6 +838,11 @@ function SmartUrlField({
   onChange: (updated: MenuItem) => void;
 }) {
   const typeInfo = ALL_LINK_TYPES[item.type];
+  const shopify = useAppBridge();
+  const fetcher = useFetcher<ResourceLoaderData>();
+  const [modalOpen, setModalOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+
   if (!typeInfo) return null;
 
   // Auto URL types (Home, Search, Account pages, Policies)
@@ -850,15 +859,7 @@ function SmartUrlField({
           padding: "8px 12px",
         }}
       >
-        <div
-          style={{
-            width: 6,
-            height: 6,
-            borderRadius: "50%",
-            background: "#1B7B3D",
-            flexShrink: 0,
-          }}
-        />
+        <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#1B7B3D", flexShrink: 0 }} />
         <Text as="p" variant="bodySm">
           Links to{" "}
           <span style={{ fontWeight: 600, fontFamily: "monospace", fontSize: 12 }}>
@@ -897,26 +898,155 @@ function SmartUrlField({
     );
   }
 
-  // Resource types (Collection, Product, Page, etc.)
-  if (item.resourceId) {
-    return (
-      <TextField
-        label="Linked resource"
-        value={item.resourceId}
-        disabled
-        autoComplete="off"
-      />
-    );
-  }
+  // Resource types: PRODUCT, COLLECTION, PAGE, BLOG, ARTICLE
+  const handleBrowse = async () => {
+    if (item.type === "PRODUCT") {
+      try {
+        const selected = await (shopify as any).resourcePicker({ type: "product", multiple: false });
+        if (selected && selected.length > 0) {
+          const r = selected[0];
+          onChange({ ...item, url: `/products/${r.handle}`, resourceId: r.id });
+        }
+      } catch {}
+    } else if (item.type === "COLLECTION") {
+      try {
+        const selected = await (shopify as any).resourcePicker({ type: "collection", multiple: false });
+        if (selected && selected.length > 0) {
+          const r = selected[0];
+          onChange({ ...item, url: `/collections/${r.handle}`, resourceId: r.id });
+        }
+      } catch {}
+    } else {
+      const typeParam = item.type.toLowerCase();
+      fetcher.load(`/app/resources?type=${typeParam}`);
+      setModalOpen(true);
+      setSearchQuery("");
+    }
+  };
+
+  const allResources = fetcher.data?.resources ?? [];
+  const filtered = allResources.filter((r) =>
+    r.title.toLowerCase().includes(searchQuery.toLowerCase()),
+  );
+  const isLoading = fetcher.state === "loading";
+  const hasSelection = !!(item.url || item.resourceId);
 
   return (
-    <TextField
-      label="URL"
-      value={item.url}
-      onChange={(val) => onChange({ ...item, url: val })}
-      autoComplete="off"
-      placeholder={typeInfo.placeholder || "Enter URL"}
-    />
+    <div>
+      <BlockStack gap="200">
+        {/* Selected resource display */}
+        {hasSelection && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              background: "#F1F8F5",
+              border: "1px solid #C9E8D9",
+              borderRadius: 8,
+              padding: "8px 12px",
+            }}
+          >
+            <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#1B7B3D", flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <Text as="p" variant="bodySm">
+                <span style={{ fontFamily: "monospace", fontSize: 12 }}>{item.url}</span>
+              </Text>
+            </div>
+            <button
+              type="button"
+              onClick={handleBrowse}
+              style={{
+                flexShrink: 0,
+                padding: "3px 10px",
+                borderRadius: 6,
+                border: "1px solid #C9CCCF",
+                background: "#fff",
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              Change
+            </button>
+          </div>
+        )}
+
+        {/* Browse button when nothing selected */}
+        {!hasSelection && (
+          <Button fullWidth onClick={handleBrowse}>
+            Browse {typeInfo.label}
+          </Button>
+        )}
+      </BlockStack>
+
+      {/* Custom resource picker modal (Page, Blog, Article) */}
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={`Select ${typeInfo.label}`}
+      >
+        <Modal.Section>
+          <BlockStack gap="300">
+            <TextField
+              label=""
+              labelHidden
+              value={searchQuery}
+              onChange={(val) => {
+                setSearchQuery(val);
+              }}
+              autoComplete="off"
+              placeholder={`Search ${typeInfo.label.toLowerCase()}s...`}
+            />
+          </BlockStack>
+        </Modal.Section>
+
+        <div style={{ maxHeight: 340, overflowY: "auto" }}>
+          {isLoading ? (
+            <div style={{ padding: 32, display: "flex", justifyContent: "center" }}>
+              <Spinner size="small" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <div style={{ padding: "16px 20px" }}>
+              <Text as="p" tone="subdued">
+                {allResources.length === 0 ? `No ${typeInfo.label.toLowerCase()}s found.` : "No results match your search."}
+              </Text>
+            </div>
+          ) : (
+            filtered.map((resource) => (
+              <button
+                key={resource.id}
+                type="button"
+                onClick={() => {
+                  onChange({ ...item, url: resource.url, resourceId: resource.id });
+                  setModalOpen(false);
+                  setSearchQuery("");
+                }}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "11px 20px",
+                  border: "none",
+                  borderBottom: "1px solid #F1F1F1",
+                  background: "transparent",
+                  cursor: "pointer",
+                  textAlign: "left",
+                  gap: 12,
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "#F6F6F7"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+              >
+                <span style={{ fontSize: 13, fontWeight: 500, color: "#303030" }}>{resource.title}</span>
+                <span style={{ fontSize: 11, color: "#8C9196", fontFamily: "monospace", whiteSpace: "nowrap" }}>
+                  {resource.url}
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      </Modal>
+    </div>
   );
 }
 
