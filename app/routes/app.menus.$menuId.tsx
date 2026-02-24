@@ -273,13 +273,21 @@ function buildUpdateInput(items: MenuItem[]): object[] {
       // Prefix types (email, phone, anchor)
       input.url = typeInfo.urlPrefix + item.url;
     } else if (SHOPIFY_AUTO_TYPES.includes(shopifyType)) {
-      // Shopify auto types (FRONTPAGE, CATALOG, SEARCH) → no url needed
+      // Shopify auto types (FRONTPAGE, CATALOG, SEARCH)
+      // Preserve resourceId if Shopify originally returned one
+      if (item.resourceId) {
+        input.resourceId = item.resourceId;
+      }
     } else if (shopifyType === "HTTP") {
       input.url = item.url;
-    } else if (item.url) {
-      input.url = item.url;
-    } else if (item.resourceId) {
-      input.resourceId = item.resourceId;
+    } else {
+      // Resource types (COLLECTION, PRODUCT, PAGE, BLOG, ARTICLE)
+      // Shopify requires resourceId for these — prefer it over url
+      if (item.resourceId) {
+        input.resourceId = item.resourceId;
+      } else if (item.url) {
+        input.url = item.url;
+      }
     }
 
     if (item.items.length > 0) {
