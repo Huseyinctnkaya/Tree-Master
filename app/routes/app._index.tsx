@@ -18,6 +18,7 @@ import {
 import { ChevronUpIcon, ChevronDownIcon, EmailIcon, QuestionCircleIcon } from "@shopify/polaris-icons";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
+import prisma from "../db.server";
 
 const MENUS_QUERY = `#graphql
   query GetMenusStats {
@@ -69,7 +70,7 @@ function countEmptyTitleItems(items: any[]): number {
 }
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { admin } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const response = await admin.graphql(MENUS_QUERY);
   const data = await response.json();
 
@@ -99,6 +100,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   if (missingUrlCount > 0) healthScore -= missingUrlCount * 5;
   healthScore = Math.max(0, Math.min(100, healthScore));
 
+  const snapshotCount = await prisma.menuSnapshot.count({
+    where: { shop: session.shop },
+  });
+
   return {
     totalMenus,
     totalItems,
@@ -106,36 +111,37 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     emptyMenus,
     missingUrlCount,
     emptyTitleCount,
+    hasMenus: totalMenus > 0,
+    hasDeployed: snapshotCount > 0,
   };
 };
 
-const STEPS = [
-  {
-    id: "1",
-    title: "Enable the app",
-    description: null,
-    done: true,
-    action: null,
-  },
-  {
-    id: "2",
-    title: "Browse your menus",
-    description:
-      "View all your store's navigation menus and their structure.",
-    done: false,
-    action: { label: "Browse menus", url: "/app/menus" },
-  },
-  {
-    id: "3",
-    title: "Edit and deploy a menu",
-    description:
-      "Open a menu, update its items, then deploy changes live to your store.",
-    done: false,
-    action: { label: "Go to menus", url: "/app/menus" },
-  },
-];
-
-const completedCount = STEPS.filter((s) => s.done).length;
+function buildSteps(hasMenus: boolean, hasDeployed: boolean) {
+  return [
+    {
+      id: "1",
+      title: "Enable the app",
+      description: null,
+      done: true,
+      action: null,
+    },
+    {
+      id: "2",
+      title: "Browse your menus",
+      description: "View all your store's navigation menus and their structure.",
+      done: hasMenus,
+      action: { label: "Browse menus", url: "/app/menus" },
+    },
+    {
+      id: "3",
+      title: "Edit and deploy a menu",
+      description:
+        "Open a menu, update its items, then deploy changes live to your store.",
+      done: hasDeployed,
+      action: { label: "Go to menus", url: "/app/menus" },
+    },
+  ];
+}
 
 // Icons
 function DoneIcon() {
@@ -186,7 +192,12 @@ export default function Dashboard() {
     emptyMenus,
     missingUrlCount,
     emptyTitleCount,
+    hasMenus,
+    hasDeployed,
   } = useLoaderData<typeof loader>();
+
+  const STEPS = buildSteps(hasMenus, hasDeployed);
+  const completedCount = STEPS.filter((s) => s.done).length;
 
   const healthTone = healthScore >= 80 ? "success" : "critical" as const;
   const healthBadgeTone = healthScore >= 80 ? "success" : healthScore >= 50 ? "warning" : "critical" as const;
