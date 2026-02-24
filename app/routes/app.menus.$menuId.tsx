@@ -559,7 +559,7 @@ function ItemRow({
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-      style={{ position: "relative" }}
+      style={{ position: "relative", marginBottom: depth > 0 ? 4 : 6 }}
     >
       {/* Drop indicator line - only show above */}
       {isDragOver && (
@@ -568,8 +568,8 @@ function ItemRow({
             position: "absolute",
             top: dragPosition === "above" ? -1 : undefined,
             bottom: dragPosition === "below" ? -1 : undefined,
-            left: depth > 0 ? 44 : 12,
-            right: 12,
+            left: depth > 0 ? 44 : 0,
+            right: 0,
             height: 2,
             background: "#2C6ECB",
             borderRadius: 1,
@@ -590,15 +590,22 @@ function ItemRow({
           padding: "10px 12px",
           paddingLeft: depth > 0 ? 44 : 12,
           cursor: "grab",
-          background: isExpanded ? "#F6F6F7" : "transparent",
+          background: isExpanded ? "#F6F6F7" : "#fff",
           borderRadius: 8,
-          transition: "background 0.1s ease",
+          border: `1px solid ${isExpanded ? "#C9CCCF" : "#E1E3E5"}`,
+          transition: "background 0.1s ease, border-color 0.1s ease",
         }}
         onMouseEnter={(e) => {
-          if (!isExpanded) e.currentTarget.style.background = "#FAFAFA";
+          if (!isExpanded) {
+            e.currentTarget.style.background = "#FAFAFA";
+            e.currentTarget.style.borderColor = "#C9CCCF";
+          }
         }}
         onMouseLeave={(e) => {
-          if (!isExpanded) e.currentTarget.style.background = "transparent";
+          if (!isExpanded) {
+            e.currentTarget.style.background = "#fff";
+            e.currentTarget.style.borderColor = "#E1E3E5";
+          }
         }}
       >
         {/* Drag handle icon */}
@@ -1004,7 +1011,7 @@ function ExpandedForm({
       />
 
       {/* Form */}
-      <div style={{ borderTop: "1px solid #E1E3E5", padding: 16 }}>
+      <div style={{ borderTop: "1px solid #E1E3E5", padding: 16, animation: "menuItemExpand 0.28s cubic-bezier(0.16, 1, 0.3, 1)" }}>
         <BlockStack gap="300">
           {/* Title */}
           <TextField
@@ -1407,6 +1414,12 @@ export default function MenuEditor() {
 
   return (
     <Page backAction={{ url: "/app/menus" }} title={menuTitle} subtitle={`Handle: /${menu.handle}`}>
+      <style>{`
+        @keyframes menuItemExpand {
+          from { opacity: 0; transform: translateY(-12px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
       <TitleBar title={menuTitle} />
       <SaveBar id="menu-save-bar">
         <button
@@ -1465,7 +1478,7 @@ export default function MenuEditor() {
                   </BlockStack>
                 </Box>
               ) : (
-                <div style={{ padding: "8px 12px" }}>
+                <div style={{ padding: "12px" }}>
                   <BlockStack gap="0">
                     {items.map((item, index) => {
                       const isExpanded = expandedId === item.id;
