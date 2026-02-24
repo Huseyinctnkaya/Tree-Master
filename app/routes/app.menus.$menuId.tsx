@@ -1095,12 +1095,9 @@ function ExpandedForm({
     (val: string) => {
       const typeInfo = ALL_LINK_TYPES[val];
       const updated: MenuItem = { ...item, type: val };
-      if (typeInfo?.autoUrl || typeInfo?.urlPrefix) {
-        updated.url = "";
-        updated.resourceId = null;
-      } else if (val === "HTTP") {
-        updated.resourceId = null;
-      }
+      // Always clear url and resourceId when changing type
+      updated.url = "";
+      updated.resourceId = null;
       onChange(updated);
     },
     [item, onChange],
