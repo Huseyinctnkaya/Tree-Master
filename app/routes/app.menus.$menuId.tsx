@@ -526,6 +526,7 @@ function ItemRow({
   isExpanded,
   isDragOver,
   dragPosition,
+  noMargin,
   onToggle,
   onDelete,
   onDragStart,
@@ -539,6 +540,7 @@ function ItemRow({
   isExpanded: boolean;
   isDragOver?: boolean;
   dragPosition?: "above" | "below";
+  noMargin?: boolean;
   onToggle: () => void;
   onDelete: () => void;
   onDragStart: (e: React.DragEvent) => void;
@@ -559,7 +561,7 @@ function ItemRow({
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-      style={{ position: "relative", marginBottom: depth > 0 ? 4 : 6 }}
+      style={{ position: "relative", marginBottom: noMargin ? 0 : depth > 0 ? 4 : 6 }}
     >
       {/* Drop indicator line - only show above */}
       {isDragOver && (
@@ -591,8 +593,9 @@ function ItemRow({
           paddingLeft: depth > 0 ? 44 : 12,
           cursor: "grab",
           background: isExpanded ? "#F6F6F7" : "#fff",
-          borderRadius: 8,
+          borderRadius: isExpanded ? "8px 8px 0 0" : 8,
           border: `1px solid ${isExpanded ? "#C9CCCF" : "#E1E3E5"}`,
+          borderBottom: isExpanded ? "none" : undefined,
           transition: "background 0.1s ease, border-color 0.1s ease",
         }}
         onMouseEnter={(e) => {
@@ -989,18 +992,13 @@ function ExpandedForm({
   }, [item, onChange, onToggleSub]);
 
   return (
-    <div
-      style={{
-        border: "1px solid #E1E3E5",
-        borderRadius: 10,
-        boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
-      }}
-    >
+    <div style={{ marginBottom: 6 }}>
       {/* Header row */}
       <ItemRow
         item={item}
         depth={0}
         isExpanded={true}
+        noMargin
         onToggle={onToggle}
         onDelete={onDelete}
         onDragStart={() => {}}
@@ -1011,7 +1009,7 @@ function ExpandedForm({
       />
 
       {/* Form */}
-      <div style={{ borderTop: "1px solid #E1E3E5", padding: 16, animation: "menuItemExpand 0.28s cubic-bezier(0.16, 1, 0.3, 1)" }}>
+      <div style={{ border: "1px solid #C9CCCF", borderTop: "none", borderRadius: "0 0 8px 8px", padding: 16, animation: "menuItemExpand 0.28s cubic-bezier(0.16, 1, 0.3, 1)" }}>
         <BlockStack gap="300">
           {/* Title */}
           <TextField
