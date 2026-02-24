@@ -593,9 +593,8 @@ function ItemRow({
           paddingLeft: depth > 0 ? 44 : 12,
           cursor: "grab",
           background: isExpanded ? "#F6F6F7" : "#fff",
-          borderRadius: isExpanded ? "8px 8px 0 0" : 8,
-          border: `1px solid ${isExpanded ? "#C9CCCF" : "#E1E3E5"}`,
-          borderBottom: isExpanded ? "none" : undefined,
+          borderRadius: 8,
+          border: isExpanded ? "none" : "1px solid #E1E3E5",
           transition: "background 0.1s ease, border-color 0.1s ease",
         }}
         onMouseEnter={(e) => {
@@ -992,7 +991,7 @@ function ExpandedForm({
   }, [item, onChange, onToggleSub]);
 
   return (
-    <div style={{ marginBottom: 6 }}>
+    <div style={{ border: "1px solid #C9CCCF", borderRadius: 8, marginBottom: 6, overflow: "hidden" }}>
       {/* Header row */}
       <ItemRow
         item={item}
@@ -1009,7 +1008,7 @@ function ExpandedForm({
       />
 
       {/* Form */}
-      <div style={{ border: "1px solid #C9CCCF", borderTop: "none", borderRadius: "0 0 8px 8px", padding: 16, animation: "menuItemExpand 0.28s cubic-bezier(0.16, 1, 0.3, 1)" }}>
+      <div style={{ borderTop: "1px solid #E1E3E5", padding: 16, animation: "menuItemExpand 0.28s cubic-bezier(0.16, 1, 0.3, 1)" }}>
         <BlockStack gap="300">
           {/* Title */}
           <TextField
