@@ -20,7 +20,7 @@ import {
   Modal,
   Spinner,
 } from "@shopify/polaris";
-import { DeleteIcon, DragHandleIcon, CalendarIcon, ClockIcon } from "@shopify/polaris-icons";
+import { DeleteIcon, DragHandleIcon, DuplicateIcon, CalendarIcon, ClockIcon } from "@shopify/polaris-icons";
 import { TitleBar, SaveBar, useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
@@ -36,6 +36,7 @@ type MenuItem = {
   handle: string;
   seoKeywords: string;
   metaDescription: string;
+  badge: string | null;
   items: MenuItem[];
 };
 
@@ -205,7 +206,20 @@ type ItemMeta = {
   handle: string;
   seoKeywords: string;
   metaDescription: string;
+  badge: string | null;
 };
+
+const BADGE_OPTIONS = [
+  { value: "NEW",     label: "New",     bg: "#E3F4E8", text: "#1B7B3D" },
+  { value: "SALE",    label: "Sale",    bg: "#FCEAE8", text: "#D72C0D" },
+  { value: "HOT",     label: "Hot",     bg: "#FFF3E0", text: "#B45309" },
+  { value: "POPULAR", label: "Popular", bg: "#E8F0FE", text: "#2C6ECB" },
+  { value: "LIMITED", label: "Limited", bg: "#F3E8FF", text: "#7C3AED" },
+] as const;
+
+const BADGE_MAP: Record<string, { bg: string; text: string }> = Object.fromEntries(
+  BADGE_OPTIONS.map((o) => [o.value, { bg: o.bg, text: o.text }]),
+);
 
 function detectAppType(shopifyType: string, url: string): string {
   if (shopifyType !== "HTTP") return shopifyType;
@@ -247,6 +261,7 @@ function normalizeItems(items: any[], metaMap: Record<string, ItemMeta> = {}): M
       handle: meta.handle || slugify(title),
       seoKeywords: meta.seoKeywords || "",
       metaDescription: meta.metaDescription || "",
+      badge: meta.badge || null,
       items: normalizeItems(item.items ?? [], metaMap),
     };
   });
@@ -304,7 +319,11 @@ function newId() {
 }
 
 function emptyItem(): MenuItem {
-  return { id: newId(), title: "", url: "", type: "HTTP", resourceId: null, handle: "", seoKeywords: "", metaDescription: "", items: [] };
+  return { id: newId(), title: "", url: "", type: "HTTP", resourceId: null, handle: "", seoKeywords: "", metaDescription: "", badge: null, items: [] };
+}
+
+function deepCloneItem(item: MenuItem): MenuItem {
+  return { ...item, id: newId(), items: item.items.map(deepCloneItem) };
 }
 
 // ---- Loader ----
@@ -339,6 +358,12 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     orderBy: { scheduledAt: "asc" },
   });
 
+  const snapshots = await prisma.menuSnapshot.findMany({
+    where: { shop: session.shop, menuGid },
+    orderBy: { createdAt: "desc" },
+    take: 10,
+  });
+
   return {
     menu: {
       ...menu,
@@ -349,6 +374,13 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       scheduledAt: d.scheduledAt.toISOString(),
       menuTitle: d.menuTitle,
     })),
+    snapshots: snapshots.map((s) => ({
+      id: s.id,
+      note: s.note,
+      menuTitle: s.menuTitle,
+      createdAt: s.createdAt.toISOString(),
+      data: s.data,
+    })),
   };
 };
 
@@ -357,11 +389,12 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 function extractMetaMap(items: MenuItem[]): Record<string, ItemMeta> {
   const map: Record<string, ItemMeta> = {};
   for (const item of items) {
-    if (item.handle || item.seoKeywords || item.metaDescription) {
+    if (item.handle || item.seoKeywords || item.metaDescription || item.badge) {
       map[item.id] = {
         handle: item.handle || "",
         seoKeywords: item.seoKeywords || "",
         metaDescription: item.metaDescription || "",
+        badge: item.badge || null,
       };
     }
     if (item.items?.length) {
@@ -422,6 +455,12 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       },
     });
     return { success: true, intent: "schedule" };
+  }
+
+  if (intent === "delete_snapshot") {
+    const snapshotId = formData.get("snapshotId") as string;
+    await prisma.menuSnapshot.delete({ where: { id: snapshotId } });
+    return { success: true, intent: "delete_snapshot" };
   }
 
   if (intent === "cancel_schedule") {
@@ -519,6 +558,24 @@ function TreeNode({ item, isLast, depth }: { item: MenuItem; isLast: boolean; de
         >
           {typeLabel}
         </span>
+        {item.badge && (() => {
+          const bc = BADGE_MAP[item.badge] ?? { bg: "#F1F1F1", text: "#616161" };
+          return (
+            <span
+              style={{
+                fontSize: 9,
+                background: bc.bg,
+                color: bc.text,
+                padding: "1px 4px",
+                borderRadius: 3,
+                whiteSpace: "nowrap",
+                fontWeight: 700,
+              }}
+            >
+              {item.badge}
+            </span>
+          );
+        })()}
       </div>
       {hasChildren &&
         item.items.map((child, ci) => (
@@ -539,6 +596,7 @@ function ItemRow({
   noMargin,
   onToggle,
   onDelete,
+  onDuplicate,
   onDragStart,
   onDragEnd,
   onDragOver,
@@ -553,6 +611,7 @@ function ItemRow({
   noMargin?: boolean;
   onToggle: () => void;
   onDelete: () => void;
+  onDuplicate?: () => void;
   onDragStart: (e: React.DragEvent) => void;
   onDragEnd: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
@@ -636,6 +695,26 @@ function ItemRow({
             {title}
           </Text>
         </div>
+        {item.badge && (() => {
+          const bc = BADGE_MAP[item.badge] ?? { bg: "#F1F1F1", text: "#616161" };
+          return (
+            <div
+              style={{
+                flexShrink: 0,
+                padding: "2px 6px",
+                borderRadius: 4,
+                background: bc.bg,
+                color: bc.text,
+                fontSize: 10,
+                fontWeight: 700,
+                whiteSpace: "nowrap",
+                letterSpacing: "0.3px",
+              }}
+            >
+              {item.badge}
+            </div>
+          );
+        })()}
         <div
           style={{
             flexShrink: 0,
@@ -650,6 +729,19 @@ function ItemRow({
         >
           {typeLabel}
         </div>
+        {onDuplicate && (
+          <div
+            style={{ flexShrink: 0, display: "flex", cursor: "pointer", color: "#8C9196" }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDuplicate();
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "#2C6ECB"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "#8C9196"; }}
+          >
+            <Icon source={DuplicateIcon} />
+          </div>
+        )}
         <div
           style={{ flexShrink: 0, display: "flex", cursor: "pointer", color: "#8C9196" }}
           onClick={(e) => {
@@ -1066,6 +1158,7 @@ function ExpandedForm({
   expandedSubId,
   onChange,
   onDelete,
+  onDuplicate,
   onToggle,
   onToggleSub,
   onSubDragStart,
@@ -1081,6 +1174,7 @@ function ExpandedForm({
   expandedSubId: string | null;
   onChange: (updated: MenuItem) => void;
   onDelete: () => void;
+  onDuplicate?: () => void;
   onToggle: () => void;
   onToggleSub: (id: string | null) => void;
   onSubDragStart: (e: React.DragEvent, index: number) => void;
@@ -1125,6 +1219,16 @@ function ExpandedForm({
     onToggleSub(newItem.id);
   }, [item, onChange, onToggleSub]);
 
+  const handleSubDuplicate = useCallback(
+    (i: number) => {
+      const clone = deepCloneItem(item.items[i]);
+      const next = [...item.items];
+      next.splice(i + 1, 0, clone);
+      onChange({ ...item, items: next });
+    },
+    [item, onChange],
+  );
+
   return (
     <div style={{ border: "1px solid #C9CCCF", borderRadius: 8, marginBottom: 6, overflow: "hidden" }}>
       {/* Header row */}
@@ -1135,6 +1239,7 @@ function ExpandedForm({
         noMargin
         onToggle={onToggle}
         onDelete={onDelete}
+        onDuplicate={onDuplicate}
         onDragStart={() => {}}
         onDragEnd={() => {}}
         onDragOver={(e) => e.preventDefault()}
@@ -1169,6 +1274,53 @@ function ExpandedForm({
             prefix="/"
             helpText="URL-friendly identifier for this item"
           />
+
+          {/* Badge picker */}
+          <div>
+            <Text as="p" variant="bodySm" fontWeight="semibold">
+              Badge <span style={{ fontWeight: 400, color: "#8C9196" }}>(optional)</span>
+            </Text>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+              <button
+                type="button"
+                onClick={() => onChange({ ...item, badge: null })}
+                style={{
+                  padding: "3px 10px",
+                  borderRadius: 20,
+                  border: !item.badge ? "1.5px solid #2C6ECB" : "1px solid #C9CCCF",
+                  background: !item.badge ? "#E8F0FE" : "#fff",
+                  color: !item.badge ? "#2C6ECB" : "#6D7175",
+                  fontSize: 12,
+                  fontWeight: !item.badge ? 600 : 400,
+                  cursor: "pointer",
+                }}
+              >
+                None
+              </button>
+              {BADGE_OPTIONS.map((opt) => {
+                const isSelected = item.badge === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => onChange({ ...item, badge: isSelected ? null : opt.value })}
+                    style={{
+                      padding: "3px 10px",
+                      borderRadius: 20,
+                      border: isSelected ? `1.5px solid ${opt.text}` : "1px solid #C9CCCF",
+                      background: isSelected ? opt.bg : "#fff",
+                      color: isSelected ? opt.text : "#6D7175",
+                      fontSize: 12,
+                      fontWeight: isSelected ? 600 : 400,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           {/* Link Type Picker */}
           <LinkTypePicker value={item.type} onChange={handleTypeChange} />
@@ -1268,6 +1420,7 @@ function ExpandedForm({
                           dragPosition={dragSubPosition ?? undefined}
                           onToggle={() => onToggleSub(sub.id)}
                           onDelete={() => handleSubDelete(i)}
+                          onDuplicate={() => handleSubDuplicate(i)}
                           onDragStart={(e) => onSubDragStart(e, i)}
                           onDragEnd={onSubDragEnd}
                           onDragOver={(e) => onSubDragOver(e, i)}
@@ -1290,7 +1443,7 @@ function ExpandedForm({
 // ---- Main page ----
 
 export default function MenuEditor() {
-  const { menu, scheduledDeploys } = useLoaderData<typeof loader>();
+  const { menu, scheduledDeploys, snapshots } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
   const navigation = useNavigation();
@@ -1304,6 +1457,7 @@ export default function MenuEditor() {
   const [expandedSubId, setExpandedSubId] = useState<string | null>(null);
   const [scheduleDate, setScheduleDate] = useState("");
   const [showSchedule, setShowSchedule] = useState(false);
+  const [draftNote, setDraftNote] = useState("");
 
   // Drag state for top-level items
   const dragRef = useRef<{ fromIndex: number } | null>(null);
@@ -1356,6 +1510,9 @@ export default function MenuEditor() {
       if (actionData.intent === "cancel_schedule") {
         shopify.toast.show("Schedule cancelled.");
       }
+      if (actionData.intent === "delete_snapshot") {
+        shopify.toast.show("Snapshot deleted.");
+      }
     }
   }, [actionData, shopify, items, menuTitle]);
 
@@ -1390,6 +1547,44 @@ export default function MenuEditor() {
     setExpandedId((prev) => (prev === id ? null : id));
     setExpandedSubId(null);
   }, []);
+
+  const handleDuplicate = useCallback((index: number) => {
+    setItems((prev) => {
+      const next = [...prev];
+      const clone = deepCloneItem(next[index]);
+      next.splice(index + 1, 0, clone);
+      return next;
+    });
+  }, []);
+
+  const handleRestore = useCallback((data: string) => {
+    const parsed = JSON.parse(data) as MenuItem[];
+    setItems(parsed);
+    setExpandedId(null);
+    setExpandedSubId(null);
+    shopify.toast.show("Snapshot restored!");
+  }, [shopify]);
+
+  const handleDeleteSnapshot = useCallback((snapshotId: string) => {
+    const fd = new FormData();
+    fd.append("intent", "delete_snapshot");
+    fd.append("snapshotId", snapshotId);
+    fd.append("menuTitle", menuTitle);
+    fd.append("menuHandle", menu.handle);
+    fd.append("items", JSON.stringify(items));
+    submit(fd, { method: "post" });
+  }, [menuTitle, menu.handle, items, submit]);
+
+  const handleSaveDraft = useCallback(() => {
+    const fd = new FormData();
+    fd.append("intent", "save_draft");
+    fd.append("menuTitle", menuTitle);
+    fd.append("menuHandle", menu.handle);
+    fd.append("items", JSON.stringify(items));
+    if (draftNote.trim()) fd.append("note", draftNote.trim());
+    submit(fd, { method: "post" });
+    setDraftNote("");
+  }, [menuTitle, menu.handle, items, draftNote, submit]);
 
   // ---- Top-level drag handlers ----
 
@@ -1624,6 +1819,7 @@ export default function MenuEditor() {
                             expandedSubId={expandedSubId}
                             onChange={(u) => handleChange(index, u)}
                             onDelete={() => handleDelete(index)}
+                            onDuplicate={() => handleDuplicate(index)}
                             onToggle={() => handleToggle(item.id)}
                             onToggleSub={setExpandedSubId}
                             onSubDragStart={(e, i) => handleSubDragStart(item.id, e, i)}
@@ -1647,6 +1843,7 @@ export default function MenuEditor() {
                             dragPosition={dragPosition ?? undefined}
                             onToggle={() => handleToggle(item.id)}
                             onDelete={() => handleDelete(index)}
+                            onDuplicate={() => handleDuplicate(index)}
                             onDragStart={(e) => handleTopDragStart(e, index)}
                             onDragEnd={handleTopDragEnd}
                             onDragOver={(e) => handleTopDragOver(e, index)}
@@ -1857,22 +2054,89 @@ export default function MenuEditor() {
               </BlockStack>
             </Card>
 
-            {/* Drafts */}
+            {/* Drafts & History */}
             <Card>
               <BlockStack gap="300">
                 <Text as="h2" variant="headingMd">
-                  Drafts
+                  Drafts &amp; History
                 </Text>
                 <Text as="p" variant="bodySm" tone="subdued">
                   Save a snapshot without deploying to your live store.
                 </Text>
+                <TextField
+                  label="Note (optional)"
+                  labelHidden
+                  value={draftNote}
+                  onChange={setDraftNote}
+                  autoComplete="off"
+                  placeholder="Note (optional)"
+                />
                 <Button
                   loading={isSubmitting}
-                  onClick={() => handleSubmit("save_draft")}
+                  onClick={handleSaveDraft}
                   fullWidth
                 >
                   Save as Draft
                 </Button>
+
+                {snapshots.length > 0 && (
+                  <>
+                    <Divider />
+                    <BlockStack gap="200">
+                      {snapshots.map((snapshot) => (
+                        <div
+                          key={snapshot.id}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 8,
+                            background: "#FAFAFA",
+                            border: "1px solid #E1E3E5",
+                            borderRadius: 8,
+                            padding: "8px 12px",
+                          }}
+                        >
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <Text as="p" variant="bodySm" fontWeight="semibold" truncate>
+                              {snapshot.note || snapshot.menuTitle}
+                            </Text>
+                            <Text as="p" variant="bodySm" tone="subdued">
+                              {new Date(snapshot.createdAt).toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </Text>
+                          </div>
+                          <InlineStack gap="100">
+                            <Button
+                              size="slim"
+                              onClick={() => handleRestore(snapshot.data)}
+                            >
+                              Restore
+                            </Button>
+                            <Button
+                              size="slim"
+                              tone="critical"
+                              variant="plain"
+                              onClick={() => handleDeleteSnapshot(snapshot.id)}
+                            >
+                              Delete
+                            </Button>
+                          </InlineStack>
+                        </div>
+                      ))}
+                    </BlockStack>
+                  </>
+                )}
+
+                {snapshots.length === 0 && (
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    No saved drafts yet.
+                  </Text>
+                )}
               </BlockStack>
             </Card>
           </BlockStack>
