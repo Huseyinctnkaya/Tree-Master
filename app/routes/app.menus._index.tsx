@@ -1,6 +1,12 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
-import { useLoaderData, useSubmit, useActionData, useNavigation } from "@remix-run/react";
+import {
+  useLoaderData,
+  useSubmit,
+  useActionData,
+  useNavigation,
+  useRevalidator,
+} from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -64,6 +70,18 @@ const DELETE_MENU_MUTATION = `#graphql
     }
   }
 `;
+
+async function waitUntilMenuVisible(admin: any, menuId: string, maxRetries = 8) {
+  for (let i = 0; i < maxRetries; i++) {
+    await new Promise((r) => setTimeout(r, 600));
+    const check = await admin.graphql(MENUS_QUERY);
+    const checkData = await check.json();
+    const found = (checkData.data?.menus?.edges ?? []).some(
+      ({ node }: any) => node.id === menuId
+    );
+    if (found) return;
+  }
+}
 
 function slugify(text: string): string {
   return text
@@ -140,7 +158,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       };
     }
 
-    return { success: true, intent: "create", error: "" };
+    const newMenuId = data.data?.menuCreate?.menu?.id;
+    await waitUntilMenuVisible(admin, newMenuId);
+    return { success: true, intent: "create", menuId: newMenuId };
   }
 
   if (intent === "create_from_template") {
@@ -169,7 +189,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       };
     }
 
-    return { success: true, intent: "create_from_template", error: "" };
+    const newMenuId = data.data?.menuCreate?.menu?.id;
+    await waitUntilMenuVisible(admin, newMenuId);
+    return { success: true, intent: "create_from_template", menuId: newMenuId };
   }
 
   if (intent === "delete") {
@@ -200,7 +222,9 @@ export default function MenusList() {
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
   const navigation = useNavigation();
+  const revalidator = useRevalidator();
   const shopify = useAppBridge();
+  const handledActionRef = useRef<string>("");
 
   const [createOpen, setCreateOpen] = useState(false);
   const [menuTitle, setMenuTitle] = useState("");
@@ -251,16 +275,27 @@ export default function MenusList() {
     setDeleteTarget(null);
   }, [deleteTarget, submit]);
 
-  // Toasts
-  if (actionData?.intent === "create" && actionData?.success) {
-    shopify.toast.show("Menu created!");
-  }
-  if (actionData?.intent === "create_from_template" && actionData?.success) {
-    shopify.toast.show("Menu created from template!");
-  }
-  if (actionData?.intent === "delete" && actionData?.success) {
-    shopify.toast.show("Menu deleted!");
-  }
+  useEffect(() => {
+    if (!actionData) return;
+
+    const actionKey = JSON.stringify(actionData);
+    if (actionKey === handledActionRef.current) return;
+    handledActionRef.current = actionKey;
+
+    if (!actionData.success) return;
+
+    if (actionData.intent === "create") {
+      shopify.toast.show("Menu created!");
+    }
+    if (actionData.intent === "create_from_template") {
+      shopify.toast.show("Menu created from template!");
+    }
+    if (actionData.intent === "delete") {
+      shopify.toast.show("Menu deleted!");
+    }
+
+    revalidator.revalidate();
+  }, [actionData, revalidator, shopify]);
 
   const activeTemplate = MENU_TEMPLATES.find((t) => t.id === selectedTemplate);
 
