@@ -225,6 +225,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     missingUrlItems,
     emptyTitleCount,
     largestMenu: largestMenu ? { title: largestMenu.title, count: largestMenu.totalCount } : null,
+    menus,
   };
 };
 
@@ -332,7 +333,59 @@ export default function Analytics() {
     missingUrlItems,
     emptyTitleCount,
     largestMenu,
+    menus,
   } = useLoaderData<typeof loader>();
+
+  // ---- Audit computations ----
+
+  // Flatten all items with context for auditing
+  type FlatItem = { menuTitle: string; title: string; url: string; type: string; depth: number };
+
+  function flattenItems(items: MenuItem[], menuTitle: string, depth = 0, acc: FlatItem[] = []): FlatItem[] {
+    for (const item of items) {
+      acc.push({ menuTitle, title: item.title || "(Untitled)", url: item.url || "", type: item.type, depth });
+      flattenItems(item.items ?? [], menuTitle, depth + 1, acc);
+    }
+    return acc;
+  }
+
+  const allFlatItems: FlatItem[] = menus.flatMap((m) => flattenItems(m.items, m.title));
+
+  // Duplicate URLs (HTTP type, same URL in 2+ places)
+  const urlGroups: Record<string, FlatItem[]> = {};
+  for (const fi of allFlatItems) {
+    if (fi.type === "HTTP" && fi.url && fi.url.trim() !== "") {
+      const key = fi.url.trim();
+      urlGroups[key] = urlGroups[key] ?? [];
+      urlGroups[key].push(fi);
+    }
+  }
+  const duplicateUrls = Object.entries(urlGroups)
+    .filter(([, items]) => items.length > 1)
+    .map(([url, items]) => ({ url, items }));
+
+  // External links (HTTP type, URL starts with http:// — pointing to other domains)
+  const externalLinks = allFlatItems.filter(
+    (fi) => fi.type === "HTTP" && (fi.url.startsWith("http://") || fi.url.startsWith("https://")),
+  );
+
+  // CSV export
+  const handleExportCSV = () => {
+    const rows: string[][] = [["Menu", "Item Title", "URL", "Type", "Depth"]];
+    for (const fi of allFlatItems) {
+      rows.push([fi.menuTitle, fi.title, fi.url, fi.type, String(fi.depth)]);
+    }
+    const csv = rows
+      .map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "menu-audit.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const linkChecker = useFetcher<{ broken: LinkCheckResult[]; checkedCount: number }>();
   const isChecking = linkChecker.state !== "idle";
@@ -391,7 +444,7 @@ export default function Analytics() {
                 <Text as="h2" variant="headingMd">
                   Menu Health
                 </Text>
-                <Badge tone={healthBadgeTone}>{String(healthScore)}/100</Badge>
+                <Badge tone={healthBadgeTone}>{`${healthScore}/100`}</Badge>
               </InlineStack>
               <ProgressBar
                 progress={healthScore}
@@ -675,6 +728,99 @@ export default function Analytics() {
             </Card>
           </Layout.Section>
         )}
+
+        {/* Navigation Audit Report */}
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="400">
+              <InlineStack align="space-between" blockAlign="center">
+                <BlockStack gap="100">
+                  <Text as="h2" variant="headingMd">
+                    Navigation Audit
+                  </Text>
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    Detailed analysis of your menu structure — duplicate URLs, external links, and more.
+                  </Text>
+                </BlockStack>
+                <Button onClick={handleExportCSV}>Export CSV</Button>
+              </InlineStack>
+
+              {/* Duplicate URLs */}
+              {duplicateUrls.length > 0 ? (
+                <BlockStack gap="200">
+                  <InlineStack gap="200" blockAlign="center">
+                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#FFC453", flexShrink: 0 }} />
+                    <Text as="p" variant="bodySm" fontWeight="semibold">
+                      {duplicateUrls.length} duplicate URL(s) found
+                    </Text>
+                  </InlineStack>
+                  {duplicateUrls.map(({ url, items }) => (
+                    <div
+                      key={url}
+                      style={{
+                        padding: "8px 12px",
+                        background: "#FFF8E6",
+                        border: "1px solid #FFCC47",
+                        borderRadius: 8,
+                      }}
+                    >
+                      <Text as="p" variant="bodySm" fontWeight="semibold">
+                        <span style={{ fontFamily: "monospace" }}>{url}</span>
+                      </Text>
+                      <Text as="p" variant="bodySm" tone="subdued">
+                        Used in: {items.map((i) => `${i.menuTitle} → ${i.title}`).join(", ")}
+                      </Text>
+                    </div>
+                  ))}
+                </BlockStack>
+              ) : (
+                <InlineStack gap="200" blockAlign="center">
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#008060", flexShrink: 0 }} />
+                  <Text as="p" variant="bodySm">No duplicate URLs detected.</Text>
+                </InlineStack>
+              )}
+
+              <Divider />
+
+              {/* External links */}
+              {externalLinks.length > 0 ? (
+                <BlockStack gap="200">
+                  <InlineStack gap="200" blockAlign="center">
+                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#2C6ECB", flexShrink: 0 }} />
+                    <Text as="p" variant="bodySm" fontWeight="semibold">
+                      {externalLinks.length} external link(s)
+                    </Text>
+                  </InlineStack>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {externalLinks.map((fi, i) => (
+                      <div
+                        key={i}
+                        style={{
+                          padding: "3px 10px",
+                          background: "#E8F0FE",
+                          border: "1px solid #C4D3F8",
+                          borderRadius: 20,
+                        }}
+                      >
+                        <Text as="span" variant="bodySm">
+                          {fi.title}{" "}
+                          <span style={{ color: "#8C9196", fontSize: 11, fontFamily: "monospace" }}>
+                            {fi.url.length > 40 ? fi.url.slice(0, 40) + "…" : fi.url}
+                          </span>
+                        </Text>
+                      </div>
+                    ))}
+                  </div>
+                </BlockStack>
+              ) : (
+                <InlineStack gap="200" blockAlign="center">
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#008060", flexShrink: 0 }} />
+                  <Text as="p" variant="bodySm">No external links detected.</Text>
+                </InlineStack>
+              )}
+            </BlockStack>
+          </Card>
+        </Layout.Section>
 
         {/* Broken Link Checker */}
         <Layout.Section>

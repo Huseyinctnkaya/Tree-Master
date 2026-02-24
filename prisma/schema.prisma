@@ -71,6 +71,17 @@ model CustomMenu {
   @@index([shop, status])
 }
 
+// Webhook endpoints called on menu deploy
+model WebhookConfig {
+  id        String   @id @default(cuid())
+  shop      String
+  url       String
+  label     String   @default("")
+  createdAt DateTime @default(now())
+
+  @@index([shop])
+}
+
 // Scheduled menu deployments
 model ScheduledDeploy {
   id         String   @id @default(cuid())

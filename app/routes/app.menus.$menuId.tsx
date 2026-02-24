@@ -493,6 +493,30 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       return { success: false, intent: "deploy", errors: userErrors };
     }
 
+    // Fire deploy webhooks (fire-and-forget, don't block deploy response)
+    const webhooks = await prisma.webhookConfig.findMany({
+      where: { shop: session.shop },
+    });
+    if (webhooks.length > 0) {
+      const payload = JSON.stringify({
+        shop: session.shop,
+        menuId: menuGid,
+        menuTitle,
+        menuHandle,
+        deployedAt: new Date().toISOString(),
+      });
+      Promise.allSettled(
+        webhooks.map((wh) =>
+          fetch(wh.url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: payload,
+            signal: AbortSignal.timeout(10000),
+          }).catch(() => {}),
+        ),
+      );
+    }
+
     return { success: true, intent: "deploy" };
   }
 
@@ -590,6 +614,132 @@ function TreeNode({ item, isLast, depth }: { item: MenuItem; isLast: boolean; de
   );
 }
 
+// ---- Snapshot Diff ----
+
+type DiffStatus = "added" | "removed" | "changed" | "unchanged";
+
+type DiffEntry = {
+  title: string;
+  status: DiffStatus;
+  details: string[];
+  children: DiffEntry[];
+};
+
+function diffMenuItems(oldItems: MenuItem[], newItems: MenuItem[]): DiffEntry[] {
+  const result: DiffEntry[] = [];
+  const newMap = new Map(newItems.map((i) => [i.title.toLowerCase().trim(), i]));
+  const seen = new Set<string>();
+
+  for (const oldItem of oldItems) {
+    const key = oldItem.title.toLowerCase().trim();
+    seen.add(key);
+    const newItem = newMap.get(key);
+    if (!newItem) {
+      result.push({ title: oldItem.title, status: "removed", details: [], children: diffMenuItems(oldItem.items ?? [], []) });
+    } else {
+      const details: string[] = [];
+      if ((oldItem.url || "") !== (newItem.url || "")) {
+        details.push(`URL: "${oldItem.url || "—"}" → "${newItem.url || "—"}"`);
+      }
+      if (oldItem.type !== newItem.type) {
+        details.push(`Type: ${oldItem.type} → ${newItem.type}`);
+      }
+      const children = diffMenuItems(oldItem.items ?? [], newItem.items ?? []);
+      const childChanged = children.some((c) => c.status !== "unchanged");
+      result.push({
+        title: oldItem.title,
+        status: details.length > 0 || childChanged ? "changed" : "unchanged",
+        details,
+        children,
+      });
+    }
+  }
+
+  for (const newItem of newItems) {
+    const key = newItem.title.toLowerCase().trim();
+    if (!seen.has(key)) {
+      result.push({ title: newItem.title, status: "added", details: [], children: diffMenuItems([], newItem.items ?? []) });
+    }
+  }
+
+  return result;
+}
+
+function countDiffStatus(entries: DiffEntry[], status: DiffStatus): number {
+  let n = 0;
+  for (const e of entries) {
+    if (e.status === status) n++;
+    n += countDiffStatus(e.children, status);
+  }
+  return n;
+}
+
+const DIFF_COLORS: Record<DiffStatus, { bg: string; text: string; prefix: string }> = {
+  added:     { bg: "#E3F4E8", text: "#1B7B3D", prefix: "+" },
+  removed:   { bg: "#FCEAE8", text: "#D72C0D", prefix: "−" },
+  changed:   { bg: "#FFF8E6", text: "#8C6B2E", prefix: "~" },
+  unchanged: { bg: "transparent", text: "#303030", prefix: " " },
+};
+
+function DiffNode({ entry, depth = 0 }: { entry: DiffEntry; depth?: number }) {
+  const c = DIFF_COLORS[entry.status];
+  return (
+    <div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          gap: 6,
+          padding: "4px 8px",
+          borderRadius: 6,
+          background: c.bg,
+          marginBottom: 2,
+          marginLeft: depth * 20,
+        }}
+      >
+        <span
+          style={{
+            color: c.text,
+            fontWeight: 700,
+            fontFamily: "monospace",
+            width: 14,
+            flexShrink: 0,
+            userSelect: "none",
+          }}
+        >
+          {c.prefix}
+        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <Text
+            as="span"
+            variant="bodySm"
+            fontWeight={entry.status !== "unchanged" ? "semibold" : "regular"}
+          >
+            <span
+              style={{
+                color: c.text,
+                textDecoration: entry.status === "removed" ? "line-through" : undefined,
+              }}
+            >
+              {entry.title || "(Untitled)"}
+            </span>
+          </Text>
+          {entry.details.map((d, i) => (
+            <div key={i} style={{ marginTop: 2 }}>
+              <Text as="span" variant="bodySm" tone="subdued">
+                {d}
+              </Text>
+            </div>
+          ))}
+        </div>
+      </div>
+      {entry.children.map((child, i) => (
+        <DiffNode key={i} entry={child} depth={depth + 1} />
+      ))}
+    </div>
+  );
+}
+
 // ---- Draggable Item Row ----
 
 function ItemRow({
@@ -607,6 +757,8 @@ function ItemRow({
   onDragOver,
   onDragLeave,
   onDrop,
+  bulkMode,
+  selected,
 }: {
   item: MenuItem;
   depth: number;
@@ -622,6 +774,8 @@ function ItemRow({
   onDragOver: (e: React.DragEvent) => void;
   onDragLeave: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
+  bulkMode?: boolean;
+  selected?: boolean;
 }) {
   const typeInfo = ALL_LINK_TYPES[item.type];
   const typeLabel = typeInfo?.label || item.type;
@@ -684,6 +838,31 @@ function ItemRow({
           }
         }}
       >
+        {/* Bulk select checkbox */}
+        {bulkMode && (
+          <div
+            style={{
+              flexShrink: 0,
+              width: 18,
+              height: 18,
+              border: selected ? "2px solid #2C6ECB" : "2px solid #C9CCCF",
+              borderRadius: 4,
+              background: selected ? "#2C6ECB" : "#fff",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              transition: "all 0.1s",
+              cursor: "pointer",
+            }}
+          >
+            {selected && (
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+          </div>
+        )}
+
         {/* Drag handle icon */}
         <div
           style={{
@@ -1470,6 +1649,10 @@ export default function MenuEditor() {
   const [scheduleDate, setScheduleDate] = useState("");
   const [showSchedule, setShowSchedule] = useState(false);
   const [draftNote, setDraftNote] = useState("");
+  const [compareSnapshot, setCompareSnapshot] = useState<{ id: string; note: string | null; menuTitle: string; createdAt: string; data: string } | null>(null);
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBadgeOpen, setBulkBadgeOpen] = useState(false);
 
   // Drag state for top-level items
   const dragRef = useRef<{ fromIndex: number } | null>(null);
@@ -1597,6 +1780,42 @@ export default function MenuEditor() {
     submit(fd, { method: "post" });
     setDraftNote("");
   }, [menuTitle, menu.handle, items, draftNote, submit]);
+
+  // ---- Bulk edit handlers ----
+
+  const handleBulkDelete = useCallback(() => {
+    setItems((prev) => prev.filter((item) => !selectedIds.has(item.id)));
+    setSelectedIds(new Set());
+    setBulkMode(false);
+    setExpandedId(null);
+  }, [selectedIds]);
+
+  const handleBulkSetBadge = useCallback((badge: string | null) => {
+    setItems((prev) =>
+      prev.map((item) =>
+        selectedIds.has(item.id) ? { ...item, badge } : item,
+      ),
+    );
+    setSelectedIds(new Set());
+    setBulkBadgeOpen(false);
+    setBulkMode(false);
+  }, [selectedIds]);
+
+  const toggleBulkMode = useCallback(() => {
+    setBulkMode((v) => !v);
+    setSelectedIds(new Set());
+    setExpandedId(null);
+    setExpandedSubId(null);
+  }, []);
+
+  const toggleItemSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   // ---- Top-level drag handlers ----
 
@@ -1800,10 +2019,59 @@ export default function MenuEditor() {
                   <Text as="h2" variant="headingMd">
                     Menu Items
                   </Text>
-                  <Badge tone="info">{`${totalItemCount} items`}</Badge>
+                  <InlineStack gap="200" blockAlign="center">
+                    <Badge tone="info">{`${totalItemCount} items`}</Badge>
+                    {items.length > 0 && (
+                      <Button
+                        size="slim"
+                        variant={bulkMode ? "primary" : "plain"}
+                        onClick={toggleBulkMode}
+                      >
+                        {bulkMode ? "Cancel" : "Select"}
+                      </Button>
+                    )}
+                  </InlineStack>
                 </InlineStack>
               </Box>
               <Divider />
+
+              {/* Bulk action bar */}
+              {bulkMode && selectedIds.size > 0 && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    padding: "8px 14px",
+                    background: "#EEF3FE",
+                    borderBottom: "1px solid #C4D3F8",
+                  }}
+                >
+                  <Text as="span" variant="bodySm" fontWeight="semibold">
+                    {selectedIds.size} selected
+                  </Text>
+                  <Button
+                    size="slim"
+                    onClick={() => setBulkBadgeOpen(true)}
+                  >
+                    Set Badge
+                  </Button>
+                  <Button
+                    size="slim"
+                    tone="critical"
+                    onClick={handleBulkDelete}
+                  >
+                    Delete
+                  </Button>
+                  <Button
+                    size="slim"
+                    variant="plain"
+                    onClick={() => setSelectedIds(new Set())}
+                  >
+                    Deselect all
+                  </Button>
+                </div>
+              )}
 
               {items.length === 0 ? (
                 <Box padding="600">
@@ -1853,7 +2121,9 @@ export default function MenuEditor() {
                             isExpanded={false}
                             isDragOver={dragOverId === item.id}
                             dragPosition={dragPosition ?? undefined}
-                            onToggle={() => handleToggle(item.id)}
+                            bulkMode={bulkMode}
+                            selected={selectedIds.has(item.id)}
+                            onToggle={() => bulkMode ? toggleItemSelect(item.id) : handleToggle(item.id)}
                             onDelete={() => handleDelete(index)}
                             onDuplicate={() => handleDuplicate(index)}
                             onDragStart={(e) => handleTopDragStart(e, index)}
@@ -2108,6 +2378,12 @@ export default function MenuEditor() {
                         <InlineStack gap="100">
                           <Button
                             size="slim"
+                            onClick={() => setCompareSnapshot(snapshot)}
+                          >
+                            Compare
+                          </Button>
+                          <Button
+                            size="slim"
                             onClick={() => handleRestore(snapshot.data)}
                           >
                             Restore
@@ -2131,6 +2407,128 @@ export default function MenuEditor() {
         </Layout.Section>
       </Layout>
       <Box paddingBlockEnd="1600" />
+
+      {/* Bulk Badge Modal */}
+      <Modal
+        open={bulkBadgeOpen}
+        onClose={() => setBulkBadgeOpen(false)}
+        title={`Set Badge for ${selectedIds.size} item(s)`}
+      >
+        <Modal.Section>
+          <BlockStack gap="300">
+            <Text as="p" variant="bodySm" tone="subdued">
+              Choose a badge to apply to all selected items, or remove any existing badges.
+            </Text>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => handleBulkSetBadge(null)}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 20,
+                  border: "1px solid #C9CCCF",
+                  background: "#fff",
+                  color: "#6D7175",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                None (remove badge)
+              </button>
+              {BADGE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => handleBulkSetBadge(opt.value)}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: 20,
+                    border: `1.5px solid ${opt.text}`,
+                    background: opt.bg,
+                    color: opt.text,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </BlockStack>
+        </Modal.Section>
+      </Modal>
+
+      {/* Snapshot Compare Modal */}
+      {compareSnapshot && (() => {
+        const snapshotItems = JSON.parse(compareSnapshot.data) as MenuItem[];
+        const diff = diffMenuItems(snapshotItems, items);
+        const addedCount = countDiffStatus(diff, "added");
+        const removedCount = countDiffStatus(diff, "removed");
+        const changedCount = countDiffStatus(diff, "changed");
+        const allUnchanged = addedCount === 0 && removedCount === 0 && changedCount === 0;
+        return (
+          <Modal
+            open={!!compareSnapshot}
+            onClose={() => setCompareSnapshot(null)}
+            title="Snapshot vs Current"
+          >
+            <Modal.Section>
+              <BlockStack gap="400">
+                <Text as="p" variant="bodySm" tone="subdued">
+                  Comparing snapshot from{" "}
+                  {new Date(compareSnapshot.createdAt).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                  {compareSnapshot.note ? ` — "${compareSnapshot.note}"` : ""} against the current editor state.
+                </Text>
+
+                <InlineStack gap="200">
+                  {addedCount > 0 && <Badge tone="success">{`+${addedCount} added`}</Badge>}
+                  {removedCount > 0 && <Badge tone="critical">{`−${removedCount} removed`}</Badge>}
+                  {changedCount > 0 && <Badge tone="warning">{`~${changedCount} changed`}</Badge>}
+                  {allUnchanged && <Badge>{"No changes"}</Badge>}
+                </InlineStack>
+
+                <div
+                  style={{
+                    background: "#FAFAFA",
+                    border: "1px solid #E1E3E5",
+                    borderRadius: 8,
+                    padding: "12px",
+                    maxHeight: 400,
+                    overflowY: "auto",
+                  }}
+                >
+                  {diff.length === 0 ? (
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      Both versions are empty.
+                    </Text>
+                  ) : (
+                    diff.map((entry, i) => <DiffNode key={i} entry={entry} />)
+                  )}
+                </div>
+
+                <InlineStack align="end" gap="200">
+                  <Button onClick={() => setCompareSnapshot(null)}>Close</Button>
+                  <Button
+                    variant="primary"
+                    onClick={() => {
+                      handleRestore(compareSnapshot.data);
+                      setCompareSnapshot(null);
+                    }}
+                  >
+                    Restore this Snapshot
+                  </Button>
+                </InlineStack>
+              </BlockStack>
+            </Modal.Section>
+          </Modal>
+        );
+      })()}
     </Page>
   );
 }
