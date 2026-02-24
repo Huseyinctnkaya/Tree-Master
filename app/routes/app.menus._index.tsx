@@ -38,8 +38,8 @@ const MENUS_QUERY = `#graphql
 `;
 
 const CREATE_MENU_MUTATION = `#graphql
-  mutation MenuCreate($title: String!, $items: [MenuItemCreateInput!]) {
-    menuCreate(title: $title, items: $items) {
+  mutation MenuCreate($title: String!, $handle: String!, $items: [MenuItemCreateInput!]!) {
+    menuCreate(title: $title, handle: $handle, items: $items) {
       menu {
         id
         title
@@ -64,6 +64,16 @@ const DELETE_MENU_MUTATION = `#graphql
     }
   }
 `;
+
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 255);
+}
 
 function buildMenuItems(items: TemplateItem[]): object[] {
   return items.map((item) => {
@@ -115,8 +125,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       return { success: false, intent: "create", error: "Menu title is required." };
     }
 
+    const trimmedTitle = title.trim();
     const response = await admin.graphql(CREATE_MENU_MUTATION, {
-      variables: { title: title.trim(), items: [] },
+      variables: { title: trimmedTitle, handle: slugify(trimmedTitle), items: [] },
     });
     const data = await response.json();
     const userErrors = data.data?.menuCreate?.userErrors ?? [];
@@ -143,8 +154,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     const menuItems = buildMenuItems(template.items);
 
+    const finalTitle = title.trim() || template.name;
     const response = await admin.graphql(CREATE_MENU_MUTATION, {
-      variables: { title: title.trim() || template.name, items: menuItems },
+      variables: { title: finalTitle, handle: slugify(finalTitle), items: menuItems },
     });
     const data = await response.json();
     const userErrors = data.data?.menuCreate?.userErrors ?? [];
