@@ -17,6 +17,7 @@ import {
 } from "@shopify/polaris";
 import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
+import { MENU_TEMPLATES, type TemplateItem } from "../data/menu-templates";
 
 const MENUS_QUERY = `#graphql
   query GetMenus {
@@ -63,6 +64,20 @@ const DELETE_MENU_MUTATION = `#graphql
     }
   }
 `;
+
+function buildMenuItems(items: TemplateItem[]): object[] {
+  return items.map((item) => {
+    const input: Record<string, unknown> = {
+      title: item.title,
+      type: item.type,
+    };
+    if (item.url) input.url = item.url;
+    if (item.items && item.items.length > 0) {
+      input.items = buildMenuItems(item.items);
+    }
+    return input;
+  });
+}
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
@@ -117,6 +132,34 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return { success: true, intent: "create", error: "" };
   }
 
+  if (intent === "create_from_template") {
+    const title = formData.get("title") as string;
+    const templateId = formData.get("templateId") as string;
+
+    const template = MENU_TEMPLATES.find((t) => t.id === templateId);
+    if (!template) {
+      return { success: false, intent: "create_from_template", error: "Template not found." };
+    }
+
+    const menuItems = buildMenuItems(template.items);
+
+    const response = await admin.graphql(CREATE_MENU_MUTATION, {
+      variables: { title: title.trim() || template.name, items: menuItems },
+    });
+    const data = await response.json();
+    const userErrors = data.data?.menuCreate?.userErrors ?? [];
+
+    if (userErrors.length > 0) {
+      return {
+        success: false,
+        intent: "create_from_template",
+        error: userErrors.map((e: any) => e.message).join(", "),
+      };
+    }
+
+    return { success: true, intent: "create_from_template", error: "" };
+  }
+
   if (intent === "delete") {
     const menuId = formData.get("menuId") as string;
 
@@ -151,9 +194,15 @@ export default function MenusList() {
   const [menuTitle, setMenuTitle] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
 
+  // Template state
+  const [templateOpen, setTemplateOpen] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
+  const [templateTitle, setTemplateTitle] = useState("");
+
   const isCreating =
     navigation.state === "submitting" &&
-    navigation.formData?.get("intent") === "create";
+    (navigation.formData?.get("intent") === "create" ||
+      navigation.formData?.get("intent") === "create_from_template");
 
   const isDeleting =
     navigation.state === "submitting" &&
@@ -169,6 +218,18 @@ export default function MenusList() {
     setMenuTitle("");
   }, [menuTitle, submit]);
 
+  const handleCreateFromTemplate = useCallback(() => {
+    if (!selectedTemplate) return;
+    const formData = new FormData();
+    formData.set("intent", "create_from_template");
+    formData.set("templateId", selectedTemplate);
+    formData.set("title", templateTitle);
+    submit(formData, { method: "post" });
+    setTemplateOpen(false);
+    setSelectedTemplate(null);
+    setTemplateTitle("");
+  }, [selectedTemplate, templateTitle, submit]);
+
   const handleDelete = useCallback(() => {
     if (!deleteTarget) return;
     const formData = new FormData();
@@ -182,9 +243,14 @@ export default function MenusList() {
   if (actionData?.intent === "create" && actionData?.success) {
     shopify.toast.show("Menu created!");
   }
+  if (actionData?.intent === "create_from_template" && actionData?.success) {
+    shopify.toast.show("Menu created from template!");
+  }
   if (actionData?.intent === "delete" && actionData?.success) {
     shopify.toast.show("Menu deleted!");
   }
+
+  const activeTemplate = MENU_TEMPLATES.find((t) => t.id === selectedTemplate);
 
   return (
     <Page
@@ -194,6 +260,12 @@ export default function MenusList() {
           Create Menu
         </Button>
       }
+      secondaryActions={[
+        {
+          content: "From Template",
+          onAction: () => setTemplateOpen(true),
+        },
+      ]}
     >
       <TitleBar title="Menus" />
       <Layout>
@@ -230,13 +302,18 @@ export default function MenusList() {
                       Create your first menu
                     </Text>
                     <Text as="p" variant="bodySm" tone="subdued">
-                      Create a navigation menu to organize your store's links and pages.
+                      Create a navigation menu or start from a ready-made template.
                     </Text>
                   </BlockStack>
                   <Box paddingBlockEnd="800">
-                    <Button variant="primary" onClick={() => setCreateOpen(true)}>
-                      Create Menu
-                    </Button>
+                    <InlineStack gap="200">
+                      <Button variant="primary" onClick={() => setCreateOpen(true)}>
+                        Create Menu
+                      </Button>
+                      <Button onClick={() => setTemplateOpen(true)}>
+                        From Template
+                      </Button>
+                    </InlineStack>
                   </Box>
                 </BlockStack>
               </Box>
@@ -365,6 +442,105 @@ export default function MenusList() {
               <Text as="p" variant="bodySm" tone="critical">
                 {actionData.error}
               </Text>
+            )}
+          </BlockStack>
+        </Modal.Section>
+      </Modal>
+
+      {/* Template Picker Modal */}
+      <Modal
+        open={templateOpen}
+        onClose={() => {
+          setTemplateOpen(false);
+          setSelectedTemplate(null);
+          setTemplateTitle("");
+        }}
+        title="Start from a template"
+        primaryAction={{
+          content: "Create Menu",
+          onAction: handleCreateFromTemplate,
+          loading: isCreating,
+          disabled: !selectedTemplate,
+        }}
+        secondaryActions={[
+          {
+            content: "Cancel",
+            onAction: () => {
+              setTemplateOpen(false);
+              setSelectedTemplate(null);
+              setTemplateTitle("");
+            },
+          },
+        ]}
+      >
+        <Modal.Section>
+          <BlockStack gap="400">
+            <Text as="p" variant="bodySm" tone="subdued">
+              Choose a template to get started quickly. You can edit all items after creating.
+            </Text>
+
+            {/* Template grid */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(2, 1fr)",
+                gap: 10,
+              }}
+            >
+              {MENU_TEMPLATES.map((template) => {
+                const isSelected = selectedTemplate === template.id;
+                return (
+                  <button
+                    key={template.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedTemplate(template.id);
+                      if (!templateTitle) setTemplateTitle(template.name);
+                    }}
+                    style={{
+                      padding: "14px 16px",
+                      borderRadius: 10,
+                      border: isSelected ? "2px solid #2C6ECB" : "1.5px solid #E1E3E5",
+                      background: isSelected ? "#F0F5FF" : "#fff",
+                      cursor: "pointer",
+                      textAlign: "left",
+                      transition: "border-color 0.12s, background 0.12s",
+                    }}
+                  >
+                    <div style={{ fontSize: 24, marginBottom: 6 }}>{template.icon}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#303030", marginBottom: 3 }}>
+                      {template.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#6D7175", lineHeight: "1.4" }}>
+                      {template.description}
+                    </div>
+                    <div style={{ marginTop: 8, display: "flex", gap: 4, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 10, background: "#F1F1F1", color: "#616161", padding: "1px 6px", borderRadius: 4 }}>
+                        {template.items.length} items
+                      </span>
+                      {template.items.some((i) => i.items && i.items.length > 0) && (
+                        <span style={{ fontSize: 10, background: "#E8F0FE", color: "#2C6ECB", padding: "1px 6px", borderRadius: 4 }}>
+                          Sub-menus
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Title input when template selected */}
+            {selectedTemplate && (
+              <TextField
+                label="Menu title"
+                value={templateTitle}
+                onChange={(val) => {
+                  setTemplateTitle(val);
+                }}
+                autoComplete="off"
+                placeholder={activeTemplate?.name ?? "Menu title"}
+                helpText="Leave blank to use the template name."
+              />
             )}
           </BlockStack>
         </Modal.Section>

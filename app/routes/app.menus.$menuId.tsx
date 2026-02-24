@@ -19,6 +19,7 @@ import {
   Tooltip,
   Modal,
   Spinner,
+  Checkbox,
 } from "@shopify/polaris";
 import { DeleteIcon, DragHandleIcon, DuplicateIcon, CalendarIcon, ClockIcon } from "@shopify/polaris-icons";
 import { TitleBar, SaveBar, useAppBridge } from "@shopify/app-bridge-react";
@@ -37,6 +38,7 @@ type MenuItem = {
   seoKeywords: string;
   metaDescription: string;
   badge: string | null;
+  openInNewTab: boolean;
   items: MenuItem[];
 };
 
@@ -207,6 +209,7 @@ type ItemMeta = {
   seoKeywords: string;
   metaDescription: string;
   badge: string | null;
+  openInNewTab: boolean;
 };
 
 const BADGE_OPTIONS = [
@@ -262,6 +265,7 @@ function normalizeItems(items: any[], metaMap: Record<string, ItemMeta> = {}): M
       seoKeywords: meta.seoKeywords || "",
       metaDescription: meta.metaDescription || "",
       badge: meta.badge || null,
+      openInNewTab: meta.openInNewTab || false,
       items: normalizeItems(item.items ?? [], metaMap),
     };
   });
@@ -319,7 +323,7 @@ function newId() {
 }
 
 function emptyItem(): MenuItem {
-  return { id: newId(), title: "", url: "", type: "HTTP", resourceId: null, handle: "", seoKeywords: "", metaDescription: "", badge: null, items: [] };
+  return { id: newId(), title: "", url: "", type: "HTTP", resourceId: null, handle: "", seoKeywords: "", metaDescription: "", badge: null, openInNewTab: false, items: [] };
 }
 
 function deepCloneItem(item: MenuItem): MenuItem {
@@ -389,12 +393,13 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 function extractMetaMap(items: MenuItem[]): Record<string, ItemMeta> {
   const map: Record<string, ItemMeta> = {};
   for (const item of items) {
-    if (item.handle || item.seoKeywords || item.metaDescription || item.badge) {
+    if (item.handle || item.seoKeywords || item.metaDescription || item.badge || item.openInNewTab) {
       map[item.id] = {
         handle: item.handle || "",
         seoKeywords: item.seoKeywords || "",
         metaDescription: item.metaDescription || "",
         badge: item.badge || null,
+        openInNewTab: item.openInNewTab || false,
       };
     }
     if (item.items?.length) {
@@ -1322,6 +1327,13 @@ function ExpandedForm({
             </div>
           </div>
 
+          {/* Open in New Tab */}
+          <Checkbox
+            label="Open in new tab"
+            checked={item.openInNewTab}
+            onChange={(val) => onChange({ ...item, openInNewTab: val })}
+          />
+
           {/* Link Type Picker */}
           <LinkTypePicker value={item.type} onChange={handleTypeChange} />
 
@@ -2054,88 +2066,64 @@ export default function MenuEditor() {
               </BlockStack>
             </Card>
 
-            {/* Drafts & History */}
+            {/* History */}
             <Card>
               <BlockStack gap="300">
                 <Text as="h2" variant="headingMd">
-                  Drafts &amp; History
+                  History
                 </Text>
-                <Text as="p" variant="bodySm" tone="subdued">
-                  Save a snapshot without deploying to your live store.
-                </Text>
-                <TextField
-                  label="Note (optional)"
-                  labelHidden
-                  value={draftNote}
-                  onChange={setDraftNote}
-                  autoComplete="off"
-                  placeholder="Note (optional)"
-                />
-                <Button
-                  loading={isSubmitting}
-                  onClick={handleSaveDraft}
-                  fullWidth
-                >
-                  Save as Draft
-                </Button>
-
-                {snapshots.length > 0 && (
-                  <>
-                    <Divider />
-                    <BlockStack gap="200">
-                      {snapshots.map((snapshot) => (
-                        <div
-                          key={snapshot.id}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            gap: 8,
-                            background: "#FAFAFA",
-                            border: "1px solid #E1E3E5",
-                            borderRadius: 8,
-                            padding: "8px 12px",
-                          }}
-                        >
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <Text as="p" variant="bodySm" fontWeight="semibold" truncate>
-                              {snapshot.note || snapshot.menuTitle}
-                            </Text>
-                            <Text as="p" variant="bodySm" tone="subdued">
-                              {new Date(snapshot.createdAt).toLocaleDateString("en-US", {
-                                month: "short",
-                                day: "numeric",
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </Text>
-                          </div>
-                          <InlineStack gap="100">
-                            <Button
-                              size="slim"
-                              onClick={() => handleRestore(snapshot.data)}
-                            >
-                              Restore
-                            </Button>
-                            <Button
-                              size="slim"
-                              tone="critical"
-                              variant="plain"
-                              onClick={() => handleDeleteSnapshot(snapshot.id)}
-                            >
-                              Delete
-                            </Button>
-                          </InlineStack>
-                        </div>
-                      ))}
-                    </BlockStack>
-                  </>
-                )}
-
-                {snapshots.length === 0 && (
+                {snapshots.length === 0 ? (
                   <Text as="p" variant="bodySm" tone="subdued">
-                    No saved drafts yet.
+                    No snapshots yet.
                   </Text>
+                ) : (
+                  <BlockStack gap="200">
+                    {snapshots.map((snapshot) => (
+                      <div
+                        key={snapshot.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 8,
+                          background: "#FAFAFA",
+                          border: "1px solid #E1E3E5",
+                          borderRadius: 8,
+                          padding: "8px 12px",
+                        }}
+                      >
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <Text as="p" variant="bodySm" fontWeight="semibold" truncate>
+                            {snapshot.note || snapshot.menuTitle}
+                          </Text>
+                          <Text as="p" variant="bodySm" tone="subdued">
+                            {new Date(snapshot.createdAt).toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </Text>
+                        </div>
+                        <InlineStack gap="100">
+                          <Button
+                            size="slim"
+                            onClick={() => handleRestore(snapshot.data)}
+                          >
+                            Restore
+                          </Button>
+                          <Button
+                            size="slim"
+                            tone="critical"
+                            variant="plain"
+                            onClick={() => handleDeleteSnapshot(snapshot.id)}
+                          >
+                            Delete
+                          </Button>
+                        </InlineStack>
+                      </div>
+                    ))}
+                  </BlockStack>
                 )}
               </BlockStack>
             </Card>

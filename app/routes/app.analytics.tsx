@@ -1,5 +1,5 @@
-import type { LoaderFunctionArgs } from "@remix-run/node";
-import { useLoaderData } from "@remix-run/react";
+import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
+import { useLoaderData, useFetcher } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -11,6 +11,9 @@ import {
   Divider,
   Badge,
   ProgressBar,
+  Button,
+  Spinner,
+  Banner,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
@@ -225,6 +228,74 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   };
 };
 
+// ---- Action (Broken Link Checker) ----
+
+function collectHttpUrls(
+  items: MenuItem[],
+  menuTitle: string,
+  acc: { url: string; title: string; menuTitle: string }[] = [],
+) {
+  for (const item of items) {
+    if (item.type === "HTTP" && item.url && item.url.startsWith("/")) {
+      acc.push({ url: item.url, title: item.title || "(Untitled)", menuTitle });
+    }
+    if (item.items) collectHttpUrls(item.items, menuTitle, acc);
+  }
+  return acc;
+}
+
+export const action = async ({ request }: ActionFunctionArgs) => {
+  const { admin, session } = await authenticate.admin(request);
+
+  const response = await admin.graphql(GET_ALL_MENUS_QUERY);
+  const data = await response.json();
+  const menus: MenuNode[] = (data.data?.menus?.edges ?? []).map(({ node }: any) => ({
+    id: node.id,
+    handle: node.handle,
+    title: node.title,
+    items: node.items ?? [],
+  }));
+
+  const urlsToCheck: { url: string; title: string; menuTitle: string }[] = [];
+  for (const menu of menus) {
+    collectHttpUrls(menu.items, menu.title, urlsToCheck);
+  }
+
+  // Deduplicate by URL
+  const seen = new Set<string>();
+  const unique = urlsToCheck.filter(({ url }) => {
+    if (seen.has(url)) return false;
+    seen.add(url);
+    return true;
+  });
+
+  // Cap at 30 to avoid timeouts
+  const toCheck = unique.slice(0, 30);
+  const shopBase = `https://${session.shop}`;
+
+  const results = await Promise.allSettled(
+    toCheck.map(async ({ url, title, menuTitle }) => {
+      try {
+        const res = await fetch(`${shopBase}${url}`, {
+          method: "HEAD",
+          signal: AbortSignal.timeout(6000),
+        });
+        return { url, title, menuTitle, status: res.status, ok: res.ok };
+      } catch {
+        return { url, title, menuTitle, status: 0, ok: false };
+      }
+    }),
+  );
+
+  const checked = results.map((r) =>
+    r.status === "fulfilled" ? r.value : null,
+  ).filter(Boolean) as { url: string; title: string; menuTitle: string; status: number; ok: boolean }[];
+
+  const broken = checked.filter((r) => !r.ok);
+
+  return { broken, checkedCount: toCheck.length };
+};
+
 // ---- Component ----
 
 function StatCard({ title, value, subtitle }: { title: string; value: string | number; subtitle?: string }) {
@@ -247,6 +318,8 @@ function StatCard({ title, value, subtitle }: { title: string; value: string | n
   );
 }
 
+type LinkCheckResult = { url: string; title: string; menuTitle: string; status: number; ok: boolean };
+
 export default function Analytics() {
   const {
     totalMenus,
@@ -260,6 +333,10 @@ export default function Analytics() {
     emptyTitleCount,
     largestMenu,
   } = useLoaderData<typeof loader>();
+
+  const linkChecker = useFetcher<{ broken: LinkCheckResult[]; checkedCount: number }>();
+  const isChecking = linkChecker.state !== "idle";
+  const checkResult = linkChecker.data;
 
   const healthScore = (() => {
     let score = 100;
@@ -598,6 +675,89 @@ export default function Analytics() {
             </Card>
           </Layout.Section>
         )}
+
+        {/* Broken Link Checker */}
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="400">
+              <InlineStack align="space-between" blockAlign="center">
+                <BlockStack gap="100">
+                  <Text as="h2" variant="headingMd">
+                    Broken Link Checker
+                  </Text>
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    Scan all custom URL items in your menus for broken links (404s).
+                  </Text>
+                </BlockStack>
+                <Button
+                  onClick={() => linkChecker.submit({}, { method: "post" })}
+                  loading={isChecking}
+                  disabled={isChecking}
+                >
+                  {isChecking ? "Checking…" : "Check Links"}
+                </Button>
+              </InlineStack>
+
+              {isChecking && (
+                <InlineStack gap="200" blockAlign="center">
+                  <Spinner size="small" />
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    Checking URLs, please wait…
+                  </Text>
+                </InlineStack>
+              )}
+
+              {checkResult && !isChecking && (
+                <BlockStack gap="300">
+                  {checkResult.broken.length === 0 ? (
+                    <Banner tone="success">
+                      <Text as="p" variant="bodySm">
+                        All {checkResult.checkedCount} checked URLs are working correctly.
+                      </Text>
+                    </Banner>
+                  ) : (
+                    <BlockStack gap="200">
+                      <Banner tone="warning">
+                        <Text as="p" variant="bodySm">
+                          Found {checkResult.broken.length} broken link(s) out of {checkResult.checkedCount} checked.
+                        </Text>
+                      </Banner>
+                      {checkResult.broken.map((r, i) => (
+                        <div
+                          key={i}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 12,
+                            padding: "8px 12px",
+                            background: "#FFF4F4",
+                            border: "1px solid #FFCFC9",
+                            borderRadius: 8,
+                          }}
+                        >
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <Text as="p" variant="bodySm" fontWeight="semibold">
+                              {r.title}
+                            </Text>
+                            <Text as="p" variant="bodySm" tone="subdued">
+                              {r.menuTitle} → <span style={{ fontFamily: "monospace" }}>{r.url}</span>
+                            </Text>
+                          </div>
+                          <div style={{ flexShrink: 0 }}>
+                            <Badge tone="critical">
+                              {r.status === 0 ? "Timeout" : `${r.status}`}
+                            </Badge>
+                          </div>
+                        </div>
+                      ))}
+                    </BlockStack>
+                  )}
+                </BlockStack>
+              )}
+            </BlockStack>
+          </Card>
+        </Layout.Section>
 
         {/* Bottom spacing */}
         <Layout.Section>
