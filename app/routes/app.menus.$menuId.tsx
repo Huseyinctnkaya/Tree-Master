@@ -796,6 +796,8 @@ function ItemRow({
   onDrop,
   bulkMode,
   selected,
+  isCollapsed,
+  onCollapseToggle,
 }: {
   item: MenuItem;
   depth: number;
@@ -813,6 +815,8 @@ function ItemRow({
   onDrop: (e: React.DragEvent) => void;
   bulkMode?: boolean;
   selected?: boolean;
+  isCollapsed?: boolean;
+  onCollapseToggle?: () => void;
 }) {
   const typeInfo = ALL_LINK_TYPES[item.type];
   const typeLabel = typeInfo?.label || item.type;
@@ -910,6 +914,24 @@ function ItemRow({
         >
           <Icon source={DragHandleIcon} />
         </div>
+
+        {/* Collapse toggle chevron */}
+        {depth === 0 && item.items.length > 0 && onCollapseToggle && (
+          <div
+            style={{ flexShrink: 0, display: "flex", cursor: "pointer", color: "#8C9196", padding: "2px" }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onCollapseToggle();
+            }}
+            title={isCollapsed ? "Sub-menüyü genişlet" : "Sub-menüyü daralt"}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "#2C6ECB"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "#8C9196"; }}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ transition: "transform 0.15s", transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)" }}>
+              <path d="M3 5L7 9L11 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+        )}
 
         <div style={{ flex: 1, minWidth: 0 }}>
           <Text as="span" variant="bodyMd" fontWeight={isExpanded ? "semibold" : "regular"} tone={isEmpty ? "subdued" : undefined}>
@@ -1917,6 +1939,7 @@ export default function MenuEditor() {
   const [savedTitle, setSavedTitle] = useState(menu.title);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedSubId, setExpandedSubId] = useState<string | null>(null);
+  const [collapsedParentIds, setCollapsedParentIds] = useState<Set<string>>(new Set());
   const [scheduleDate, setScheduleDate] = useState("");
   const [showSchedule, setShowSchedule] = useState(false);
   const [draftNote, setDraftNote] = useState("");
@@ -2449,6 +2472,13 @@ export default function MenuEditor() {
                             dragPosition={dragPosition ?? undefined}
                             bulkMode={bulkMode}
                             selected={selectedIds.has(item.id)}
+                            isCollapsed={collapsedParentIds.has(item.id)}
+                            onCollapseToggle={() => setCollapsedParentIds(prev => {
+                              const next = new Set(prev);
+                              if (next.has(item.id)) next.delete(item.id);
+                              else next.add(item.id);
+                              return next;
+                            })}
                             onToggle={() => bulkMode ? toggleItemSelect(item.id) : handleToggle(item.id)}
                             onDelete={() => handleDelete(index)}
                             onDuplicate={() => handleDuplicate(index)}
@@ -2458,8 +2488,8 @@ export default function MenuEditor() {
                             onDragLeave={handleTopDragLeave}
                             onDrop={(e) => handleTopDrop(e, index)}
                           />
-                          {/* Show sub-items as collapsed under parent */}
-                          {item.items.length > 0 && (
+                          {/* Show sub-items under parent, collapsible */}
+                          {item.items.length > 0 && !collapsedParentIds.has(item.id) && (
                             <div style={{ paddingLeft: 20 }}>
                               {item.items.map((sub) => (
                                 <ItemRow
