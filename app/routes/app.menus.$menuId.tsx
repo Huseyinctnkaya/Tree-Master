@@ -21,7 +21,7 @@ import {
   Spinner,
   Checkbox,
 } from "@shopify/polaris";
-import { DeleteIcon, DragHandleIcon, DuplicateIcon, CalendarIcon, ClockIcon } from "@shopify/polaris-icons";
+import { DeleteIcon, DragHandleIcon, DuplicateIcon, CalendarIcon, ClockIcon, CollectionIcon, ProductIcon, PageIcon, LinkIcon } from "@shopify/polaris-icons";
 import { TitleBar, SaveBar, useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
@@ -1774,10 +1774,10 @@ function ResourceBrowser({
   };
 
   const tabs = [
-    { id: "collections", label: "Collections", icon: "📁", count: collections.length },
-    { id: "products", label: "Products", icon: "📦", count: products.length },
-    { id: "pages", label: "Pages", icon: "📄", count: pages.length },
-    { id: "link", label: "Custom Link", icon: "🔗", count: null },
+    { id: "collections", label: "Collections", icon: CollectionIcon, count: collections.length },
+    { id: "products", label: "Products", icon: ProductIcon, count: products.length },
+    { id: "pages", label: "Pages", icon: PageIcon, count: pages.length },
+    { id: "link", label: "Custom Link", icon: LinkIcon, count: null },
   ] as const;
 
   return (
@@ -1798,34 +1798,50 @@ function ResourceBrowser({
 
         {/* Tabs */}
         <div style={{ display: "flex", borderBottom: "1px solid #E1E3E5" }}>
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => { setTab(t.id); setSearch(""); }}
-              style={{
-                flex: 1,
-                padding: "7px 4px",
-                fontSize: 11,
-                fontWeight: tab === t.id ? 600 : 400,
-                color: tab === t.id ? "#2C6ECB" : "#6D7175",
-                background: tab === t.id ? "#F0F5FF" : "none",
-                border: "none",
-                borderBottom: tab === t.id ? "2px solid #2C6ECB" : "2px solid transparent",
-                cursor: "pointer",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: 2,
-                transition: "all 0.1s",
-                lineHeight: 1.3,
-              }}
-            >
-              <span style={{ fontSize: 14 }}>{t.icon}</span>
-              <span>{t.label}</span>
-              {t.count !== null && <span style={{ fontSize: 9, color: "#6D7175", fontWeight: 400 }}>{t.count}</span>}
-            </button>
-          ))}
+          {tabs.map((t) => {
+            const active = tab === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => { setTab(t.id); setSearch(""); }}
+                style={{
+                  flex: 1,
+                  padding: "8px 2px",
+                  fontSize: 11,
+                  fontWeight: active ? 600 : 400,
+                  color: active ? "#2C6ECB" : "#6D7175",
+                  background: active ? "#F0F5FF" : "none",
+                  border: "none",
+                  borderBottom: active ? "2px solid #2C6ECB" : "2px solid transparent",
+                  cursor: "pointer",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 3,
+                  transition: "color 0.1s, background 0.1s",
+                }}
+              >
+                <span style={{ display: "flex", color: active ? "#2C6ECB" : "#8C9196" }}>
+                  <Icon source={t.icon} />
+                </span>
+                <span style={{ lineHeight: 1.2 }}>{t.label}</span>
+                {t.count !== null && (
+                  <span style={{
+                    fontSize: 9,
+                    fontWeight: 500,
+                    color: active ? "#2C6ECB" : "#8C9196",
+                    background: active ? "#D3E1FA" : "#F1F1F1",
+                    borderRadius: 8,
+                    padding: "1px 5px",
+                    lineHeight: 1.6,
+                  }}>
+                    {t.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {tab !== "link" ? (
