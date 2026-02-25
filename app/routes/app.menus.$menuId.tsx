@@ -2403,11 +2403,8 @@ export default function MenuEditor() {
                 <Box padding="600">
                   <BlockStack gap="300" inlineAlign="center">
                     <Text as="p" variant="bodyMd" tone="subdued">
-                      No items yet. Drag from the left panel or add manually.
+                      No items yet. Use the panel on the right to add collections, products, pages or custom links.
                     </Text>
-                    <Button variant="primary" onClick={handleAddItem}>
-                      + Add menu item
-                    </Button>
                   </BlockStack>
                 </Box>
               ) : (
@@ -2489,11 +2486,6 @@ export default function MenuEditor() {
                     })}
                   </BlockStack>
 
-                  <div style={{ padding: "12px 0 4px" }}>
-                    <Button variant="primary" onClick={handleAddItem}>
-                      + Add menu item
-                    </Button>
-                  </div>
                 </div>
               )}
               </div>
