@@ -839,7 +839,7 @@ function ItemRow({
             position: "absolute",
             top: dragPosition === "above" ? -1 : undefined,
             bottom: dragPosition === "below" ? -1 : undefined,
-            left: depth > 0 ? 44 : 0,
+            left: depth > 0 ? 24 : 0,
             right: 0,
             height: 2,
             background: "#2C6ECB",
@@ -859,7 +859,7 @@ function ItemRow({
           alignItems: "center",
           gap: 8,
           padding: "10px 12px",
-          paddingLeft: depth > 0 ? 44 : 12,
+          paddingLeft: depth > 0 ? 24 : 12,
           cursor: "grab",
           background: isExpanded ? "#F6F6F7" : "#fff",
           borderRadius: 8,
@@ -2490,27 +2490,48 @@ export default function MenuEditor() {
                           />
                           {/* Show sub-items under parent, collapsible */}
                           {item.items.length > 0 && !collapsedParentIds.has(item.id) && (
-                            <div style={{ paddingLeft: 20 }}>
+                            <div style={{ position: "relative", marginLeft: 20, marginTop: 3 }}>
+                              {/* Vertical tree line — runs from top to center of last item */}
+                              <div style={{
+                                position: "absolute",
+                                left: 0,
+                                top: 0,
+                                bottom: 21,
+                                width: 1,
+                                background: "#E1E3E5",
+                                borderRadius: 1,
+                              }} />
                               {item.items.map((sub) => (
-                                <ItemRow
-                                  key={sub.id}
-                                  item={sub}
-                                  depth={1}
-                                  isExpanded={false}
-                                  onToggle={() => {
-                                    setExpandedId(item.id);
-                                    setExpandedSubId(sub.id);
-                                  }}
-                                  onDelete={() => {
-                                    const next = item.items.filter((s) => s.id !== sub.id);
-                                    handleChange(index, { ...item, items: next });
-                                  }}
-                                  onDragStart={() => {}}
-                                  onDragEnd={() => {}}
-                                  onDragOver={(e) => e.preventDefault()}
-                                  onDragLeave={() => {}}
-                                  onDrop={(e) => e.preventDefault()}
-                                />
+                                <div key={sub.id} style={{ position: "relative", paddingLeft: 20 }}>
+                                  {/* Horizontal branch line — sits outside ItemRow so white bg doesn't cover it */}
+                                  <div style={{
+                                    position: "absolute",
+                                    left: 0,
+                                    top: "50%",
+                                    width: 20,
+                                    height: 1,
+                                    background: "#E1E3E5",
+                                    transform: "translateY(-50%)",
+                                  }} />
+                                  <ItemRow
+                                    item={sub}
+                                    depth={1}
+                                    isExpanded={false}
+                                    onToggle={() => {
+                                      setExpandedId(item.id);
+                                      setExpandedSubId(sub.id);
+                                    }}
+                                    onDelete={() => {
+                                      const next = item.items.filter((s) => s.id !== sub.id);
+                                      handleChange(index, { ...item, items: next });
+                                    }}
+                                    onDragStart={() => {}}
+                                    onDragEnd={() => {}}
+                                    onDragOver={(e) => e.preventDefault()}
+                                    onDragLeave={() => {}}
+                                    onDrop={(e) => e.preventDefault()}
+                                  />
+                                </div>
                               ))}
                             </div>
                           )}
