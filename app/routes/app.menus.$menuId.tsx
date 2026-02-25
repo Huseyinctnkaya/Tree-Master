@@ -1777,20 +1777,19 @@ function ResourceBrowser({
     { id: "collections", label: "Collections", icon: "📁", count: collections.length },
     { id: "products", label: "Products", icon: "📦", count: products.length },
     { id: "pages", label: "Pages", icon: "📄", count: pages.length },
-    { id: "link", label: "Link", icon: "🔗", count: null },
+    { id: "link", label: "Custom Link", icon: "🔗", count: null },
   ] as const;
 
   return (
-    <div style={{ position: "sticky", top: 16 }}>
-      <div
-        style={{
-          background: "#fff",
-          border: "1px solid #E1E3E5",
-          borderRadius: 12,
-          overflow: "hidden",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
-        }}
-      >
+    <div
+      style={{
+        background: "#fff",
+        border: "1px solid #E1E3E5",
+        borderRadius: 12,
+        overflow: "hidden",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+      }}
+    >
         {/* Header */}
         <div style={{ padding: "12px 16px 8px", borderBottom: "1px solid #E1E3E5" }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: "#303030" }}>Add to menu</div>
@@ -1806,8 +1805,8 @@ function ResourceBrowser({
               onClick={() => { setTab(t.id); setSearch(""); }}
               style={{
                 flex: 1,
-                padding: "8px 2px",
-                fontSize: 10,
+                padding: "7px 4px",
+                fontSize: 11,
                 fontWeight: tab === t.id ? 600 : 400,
                 color: tab === t.id ? "#2C6ECB" : "#6D7175",
                 background: tab === t.id ? "#F0F5FF" : "none",
@@ -1819,10 +1818,12 @@ function ResourceBrowser({
                 alignItems: "center",
                 gap: 2,
                 transition: "all 0.1s",
+                lineHeight: 1.3,
               }}
             >
-              <span style={{ fontSize: 15 }}>{t.icon}</span>
-              <span style={{ lineHeight: 1.2 }}>{t.count !== null ? t.count : ""}</span>
+              <span style={{ fontSize: 14 }}>{t.icon}</span>
+              <span>{t.label}</span>
+              {t.count !== null && <span style={{ fontSize: 9, color: "#6D7175", fontWeight: 400 }}>{t.count}</span>}
             </button>
           ))}
         </div>
@@ -1849,7 +1850,7 @@ function ResourceBrowser({
               />
             </div>
             {/* List */}
-            <div style={{ maxHeight: 380, overflowY: "auto" }}>
+            <div style={{ maxHeight: 260, overflowY: "auto" }}>
               {filtered.length === 0 ? (
                 <div style={{ padding: "20px 16px", textAlign: "center", color: "#6D7175", fontSize: 12 }}>
                   {search ? "No results" : `No ${tab} found`}
@@ -1894,7 +1895,6 @@ function ResourceBrowser({
             </BlockStack>
           </div>
         )}
-      </div>
     </div>
   );
 }
@@ -2303,13 +2303,7 @@ export default function MenuEditor() {
         <button onClick={handleDiscard}>Discard</button>
       </SaveBar>
 
-      <div style={{ display: "grid", gridTemplateColumns: "260px 1fr 300px", gap: 16, alignItems: "start" }}>
-        <ResourceBrowser
-          collections={collections}
-          products={products}
-          pages={pages}
-          onAdd={handleAddResource}
-        />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 16, alignItems: "start" }}>
         <BlockStack gap="400">
             {errors.length > 0 && (
               <Banner tone="critical" title="Deploy failed">
@@ -2505,7 +2499,14 @@ export default function MenuEditor() {
               </div>
             </Card>
           </BlockStack>
+        <div style={{ position: "sticky", top: 16 }}>
         <BlockStack gap="400">
+            <ResourceBrowser
+              collections={collections}
+              products={products}
+              pages={pages}
+              onAdd={handleAddResource}
+            />
             {/* Live Tree Preview */}
             <Card>
               <BlockStack gap="300">
@@ -2734,6 +2735,7 @@ export default function MenuEditor() {
               </BlockStack>
             </Card>
         </BlockStack>
+        </div>
       </div>
       <Box paddingBlockEnd="1600" />
 
