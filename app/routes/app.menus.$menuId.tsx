@@ -1826,19 +1826,6 @@ function ResourceBrowser({
                   <Icon source={t.icon} />
                 </span>
                 <span style={{ lineHeight: 1.2 }}>{t.label}</span>
-                {t.count !== null && (
-                  <span style={{
-                    fontSize: 9,
-                    fontWeight: 500,
-                    color: active ? "#2C6ECB" : "#8C9196",
-                    background: active ? "#D3E1FA" : "#F1F1F1",
-                    borderRadius: 8,
-                    padding: "1px 5px",
-                    lineHeight: 1.6,
-                  }}>
-                    {t.count}
-                  </span>
-                )}
               </button>
             );
           })}
