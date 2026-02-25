@@ -2501,7 +2501,7 @@ export default function MenuEditor() {
                                 background: "#E1E3E5",
                                 borderRadius: 1,
                               }} />
-                              {item.items.map((sub) => (
+                              {item.items.map((sub, si) => (
                                 <div key={sub.id} style={{ position: "relative", paddingLeft: 20 }}>
                                   {/* Horizontal branch line — sits outside ItemRow so white bg doesn't cover it */}
                                   <div style={{
@@ -2517,6 +2517,8 @@ export default function MenuEditor() {
                                     item={sub}
                                     depth={1}
                                     isExpanded={false}
+                                    isDragOver={dragOverSubId === sub.id}
+                                    dragPosition={dragSubPosition ?? undefined}
                                     onToggle={() => {
                                       setExpandedId(item.id);
                                       setExpandedSubId(sub.id);
@@ -2525,11 +2527,11 @@ export default function MenuEditor() {
                                       const next = item.items.filter((s) => s.id !== sub.id);
                                       handleChange(index, { ...item, items: next });
                                     }}
-                                    onDragStart={() => {}}
-                                    onDragEnd={() => {}}
-                                    onDragOver={(e) => e.preventDefault()}
-                                    onDragLeave={() => {}}
-                                    onDrop={(e) => e.preventDefault()}
+                                    onDragStart={(e) => handleSubDragStart(item.id, e, si)}
+                                    onDragEnd={handleSubDragEnd}
+                                    onDragOver={(e) => handleSubDragOver(e, si, item.items)}
+                                    onDragLeave={handleSubDragLeave}
+                                    onDrop={(e) => handleSubDrop(e, si, index)}
                                   />
                                 </div>
                               ))}
