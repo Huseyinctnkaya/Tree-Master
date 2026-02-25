@@ -839,7 +839,7 @@ function ItemRow({
             position: "absolute",
             top: dragPosition === "above" ? -1 : undefined,
             bottom: dragPosition === "below" ? -1 : undefined,
-            left: depth > 0 ? 24 : 0,
+            left: 0,
             right: 0,
             height: 2,
             background: "#2C6ECB",
@@ -859,7 +859,7 @@ function ItemRow({
           alignItems: "center",
           gap: 8,
           padding: "10px 12px",
-          paddingLeft: depth > 0 ? 24 : 12,
+          paddingLeft: 12,
           cursor: "grab",
           background: isExpanded ? "#F6F6F7" : "#fff",
           borderRadius: 8,
@@ -2309,7 +2309,7 @@ export default function MenuEditor() {
       : [];
 
   return (
-    <Page backAction={{ url: "/app/menus" }} title={menuTitle} subtitle={`Handle: /${menu.handle}`}>
+    <Page backAction={{ url: "/app/menus" }} title={menuTitle} subtitle={`Handle: /${menu.handle}  ·  ${totalItemCount} items`}>
       <style>{`
         @keyframes menuItemExpand {
           from { opacity: 0; transform: translateY(-12px); }
@@ -2581,26 +2581,6 @@ export default function MenuEditor() {
               </BlockStack>
             </Card>
 
-            {/* Menu Info */}
-            <Card>
-              <BlockStack gap="300">
-                <Text as="h2" variant="headingMd">
-                  Menu Info
-                </Text>
-                <InlineStack align="space-between">
-                  <Text as="span" tone="subdued">Handle</Text>
-                  <Text as="span">/{menu.handle}</Text>
-                </InlineStack>
-                <InlineStack align="space-between">
-                  <Text as="span" tone="subdued">Items</Text>
-                  <Text as="span">{totalItemCount}</Text>
-                </InlineStack>
-                <Divider />
-                <Text as="p" variant="bodySm" tone="subdued">
-                  Changes apply to the store only after "Deploy". Use "Save Draft" to keep changes without publishing.
-                </Text>
-              </BlockStack>
-            </Card>
 
             {/* Scheduled Publishing */}
             <Card>
