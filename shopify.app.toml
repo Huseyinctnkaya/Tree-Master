@@ -2,7 +2,7 @@
 
 client_id = "c8867de6e4b3b9ef48e23dedbac5bd03"
 name = "Tree Master"
-application_url = "https://directions-arm-alpine-exceptional.trycloudflare.com"
+application_url = "https://mitchell-billy-seal-bowling.trycloudflare.com"
 embedded = true
 
 [build]
@@ -13,12 +13,12 @@ api_version = "2026-04"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_online_store_navigation,write_online_store_navigation"
+scopes = "read_online_store_navigation,write_online_store_navigation,read_products,read_content"
 
 [app_proxy]
-url = "https://directions-arm-alpine-exceptional.trycloudflare.com/api"
+url = "https://mitchell-billy-seal-bowling.trycloudflare.com/api"
 subpath = "tree-master"
 prefix = "apps"
 
 [auth]
-redirect_urls = [ "https://directions-arm-alpine-exceptional.trycloudflare.com/auth/callback" ]
+redirect_urls = [ "https://mitchell-billy-seal-bowling.trycloudflare.com/auth/callback" ]

@@ -55,6 +55,14 @@ type DragInfo = {
   index: number;
 };
 
+type ShopifyResource = {
+  id: string;
+  handle: string;
+  title: string;
+  resourceType: "COLLECTION" | "PRODUCT" | "PAGE" | "HTTP";
+  url?: string;
+};
+
 // ---- GraphQL ----
 
 const GET_MENU_QUERY = `#graphql
@@ -92,6 +100,20 @@ const UPDATE_MENU_MUTATION = `#graphql
         field
         message
       }
+    }
+  }
+`;
+
+const GET_RESOURCES_QUERY = `#graphql
+  query GetShopifyResources {
+    collections(first: 50, sortKey: TITLE) {
+      edges { node { id handle title } }
+    }
+    products(first: 50, sortKey: TITLE) {
+      edges { node { id handle title } }
+    }
+    pages(first: 50) {
+      edges { node { id handle title } }
     }
   }
 `;
@@ -336,10 +358,12 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   const menuGid = `gid://shopify/Menu/${params.menuId}`;
 
-  const response = await admin.graphql(GET_MENU_QUERY, {
-    variables: { id: menuGid },
-  });
-  const data = await response.json();
+  const [menuResponse, resourcesResponse] = await Promise.all([
+    admin.graphql(GET_MENU_QUERY, { variables: { id: menuGid } }),
+    admin.graphql(GET_RESOURCES_QUERY),
+  ]);
+  const data = await menuResponse.json();
+  const resourcesData = await resourcesResponse.json();
 
   if (!data.data?.menu) {
     throw new Response("Menu not found", { status: 404 });
@@ -368,6 +392,16 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     take: 10,
   });
 
+  const collections: ShopifyResource[] = (resourcesData.data?.collections?.edges ?? []).map(
+    ({ node }: any) => ({ id: node.id, handle: node.handle, title: node.title, resourceType: "COLLECTION" as const }),
+  );
+  const products: ShopifyResource[] = (resourcesData.data?.products?.edges ?? []).map(
+    ({ node }: any) => ({ id: node.id, handle: node.handle, title: node.title, resourceType: "PRODUCT" as const }),
+  );
+  const pages: ShopifyResource[] = (resourcesData.data?.pages?.edges ?? []).map(
+    ({ node }: any) => ({ id: node.id, handle: node.handle, title: node.title, resourceType: "PAGE" as const }),
+  );
+
   return {
     menu: {
       ...menu,
@@ -385,6 +419,9 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       createdAt: s.createdAt.toISOString(),
       data: s.data,
     })),
+    collections,
+    products,
+    pages,
   };
 };
 
@@ -1631,10 +1668,241 @@ function ExpandedForm({
   );
 }
 
+// ---- Resource Browser ----
+
+function ResourceItem({
+  resource,
+  onAdd,
+  onDragStart,
+}: {
+  resource: ShopifyResource;
+  onAdd: (resource: ShopifyResource) => void;
+  onDragStart: (e: React.DragEvent, resource: ShopifyResource) => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const typeColors: Record<string, { bg: string; text: string }> = {
+    COLLECTION: { bg: "#E8F0FE", text: "#2C6ECB" },
+    PRODUCT: { bg: "#E3F4E8", text: "#1B7B3D" },
+    PAGE: { bg: "#FFF3E0", text: "#B45309" },
+  };
+  const colors = typeColors[resource.resourceType] || { bg: "#F1F1F1", text: "#616161" };
+
+  return (
+    <div
+      draggable
+      onDragStart={(e) => onDragStart(e, resource)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        padding: "7px 12px",
+        gap: 8,
+        cursor: "grab",
+        background: hovered ? "#F6F6F7" : "transparent",
+        borderBottom: "1px solid #F1F1F1",
+        transition: "background 0.1s",
+      }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: hovered ? 600 : 400, color: "#303030", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {resource.title}
+        </div>
+        <div style={{ fontSize: 11, color: "#6D7175", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          /{resource.handle}
+        </div>
+      </div>
+      {hovered ? (
+        <button
+          type="button"
+          onClick={() => onAdd(resource)}
+          style={{
+            padding: "3px 8px",
+            fontSize: 11,
+            fontWeight: 600,
+            color: colors.text,
+            background: colors.bg,
+            border: `1px solid ${colors.text}30`,
+            borderRadius: 4,
+            cursor: "pointer",
+            flexShrink: 0,
+            whiteSpace: "nowrap",
+          }}
+        >
+          + Add
+        </button>
+      ) : (
+        <div style={{ width: 42, flexShrink: 0 }} />
+      )}
+    </div>
+  );
+}
+
+function ResourceBrowser({
+  collections,
+  products,
+  pages,
+  onAdd,
+}: {
+  collections: ShopifyResource[];
+  products: ShopifyResource[];
+  pages: ShopifyResource[];
+  onAdd: (resource: ShopifyResource) => void;
+}) {
+  const [tab, setTab] = useState<"collections" | "products" | "pages" | "link">("collections");
+  const [search, setSearch] = useState("");
+  const [customTitle, setCustomTitle] = useState("");
+  const [customUrl, setCustomUrl] = useState("");
+
+  const currentList = tab === "collections" ? collections : tab === "products" ? products : tab === "pages" ? pages : [];
+  const filtered = search
+    ? currentList.filter((r) => r.title.toLowerCase().includes(search.toLowerCase()) || r.handle.toLowerCase().includes(search.toLowerCase()))
+    : currentList;
+
+  const handleResourceDragStart = (e: React.DragEvent, resource: ShopifyResource) => {
+    e.dataTransfer.setData("application/tree-master-resource", JSON.stringify(resource));
+    e.dataTransfer.effectAllowed = "copy";
+  };
+
+  const handleAddCustomLink = () => {
+    const trimTitle = customTitle.trim();
+    const trimUrl = customUrl.trim();
+    if (!trimTitle || !trimUrl) return;
+    onAdd({ id: "", handle: slugify(trimTitle), title: trimTitle, resourceType: "HTTP", url: trimUrl });
+    setCustomTitle("");
+    setCustomUrl("");
+  };
+
+  const tabs = [
+    { id: "collections", label: "Collections", icon: "📁", count: collections.length },
+    { id: "products", label: "Products", icon: "📦", count: products.length },
+    { id: "pages", label: "Pages", icon: "📄", count: pages.length },
+    { id: "link", label: "Link", icon: "🔗", count: null },
+  ] as const;
+
+  return (
+    <div style={{ position: "sticky", top: 16 }}>
+      <div
+        style={{
+          background: "#fff",
+          border: "1px solid #E1E3E5",
+          borderRadius: 12,
+          overflow: "hidden",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+        }}
+      >
+        {/* Header */}
+        <div style={{ padding: "12px 16px 8px", borderBottom: "1px solid #E1E3E5" }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#303030" }}>Add to menu</div>
+          <div style={{ fontSize: 11, color: "#6D7175", marginTop: 2 }}>Drag or click + to add</div>
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display: "flex", borderBottom: "1px solid #E1E3E5" }}>
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => { setTab(t.id); setSearch(""); }}
+              style={{
+                flex: 1,
+                padding: "8px 2px",
+                fontSize: 10,
+                fontWeight: tab === t.id ? 600 : 400,
+                color: tab === t.id ? "#2C6ECB" : "#6D7175",
+                background: tab === t.id ? "#F0F5FF" : "none",
+                border: "none",
+                borderBottom: tab === t.id ? "2px solid #2C6ECB" : "2px solid transparent",
+                cursor: "pointer",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 2,
+                transition: "all 0.1s",
+              }}
+            >
+              <span style={{ fontSize: 15 }}>{t.icon}</span>
+              <span style={{ lineHeight: 1.2 }}>{t.count !== null ? t.count : ""}</span>
+            </button>
+          ))}
+        </div>
+
+        {tab !== "link" ? (
+          <div>
+            {/* Search */}
+            <div style={{ padding: "8px 10px" }}>
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={`Search ${tab}...`}
+                style={{
+                  width: "100%",
+                  padding: "5px 9px",
+                  fontSize: 12,
+                  border: "1px solid #C9CCCF",
+                  borderRadius: 6,
+                  outline: "none",
+                  boxSizing: "border-box",
+                  color: "#303030",
+                }}
+              />
+            </div>
+            {/* List */}
+            <div style={{ maxHeight: 380, overflowY: "auto" }}>
+              {filtered.length === 0 ? (
+                <div style={{ padding: "20px 16px", textAlign: "center", color: "#6D7175", fontSize: 12 }}>
+                  {search ? "No results" : `No ${tab} found`}
+                </div>
+              ) : (
+                filtered.map((resource) => (
+                  <ResourceItem
+                    key={resource.id}
+                    resource={resource}
+                    onAdd={onAdd}
+                    onDragStart={handleResourceDragStart}
+                  />
+                ))
+              )}
+            </div>
+          </div>
+        ) : (
+          /* Custom Link Form */
+          <div style={{ padding: "12px 14px" }}>
+            <BlockStack gap="300">
+              <TextField
+                label="Link text"
+                value={customTitle}
+                onChange={setCustomTitle}
+                autoComplete="off"
+                placeholder="e.g. Shop Now"
+              />
+              <TextField
+                label="URL"
+                value={customUrl}
+                onChange={setCustomUrl}
+                autoComplete="off"
+                placeholder="https://..."
+              />
+              <Button
+                variant="primary"
+                disabled={!customTitle.trim() || !customUrl.trim()}
+                onClick={handleAddCustomLink}
+              >
+                Add to Menu
+              </Button>
+            </BlockStack>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ---- Main page ----
 
 export default function MenuEditor() {
-  const { menu, scheduledDeploys, snapshots } = useLoaderData<typeof loader>();
+  const { menu, scheduledDeploys, snapshots, collections, products, pages } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
   const navigation = useNavigation();
@@ -1729,6 +1997,36 @@ export default function MenuEditor() {
   const handleDelete = useCallback((index: number) => {
     setItems((prev) => prev.filter((_, i) => i !== index));
     setExpandedId(null);
+  }, []);
+
+  const handleAddResource = useCallback((resource: ShopifyResource, insertIndex?: number) => {
+    const urlMap: Record<string, string> = {
+      COLLECTION: `/collections/${resource.handle}`,
+      PRODUCT: `/products/${resource.handle}`,
+      PAGE: `/pages/${resource.handle}`,
+    };
+    const url = resource.resourceType === "HTTP" ? (resource.url || "") : (urlMap[resource.resourceType] || "");
+    const newItem: MenuItem = {
+      id: newId(),
+      title: resource.title,
+      url,
+      type: resource.resourceType,
+      resourceId: resource.resourceType !== "HTTP" ? resource.id : null,
+      handle: resource.handle || slugify(resource.title),
+      seoKeywords: "",
+      metaDescription: "",
+      badge: null,
+      openInNewTab: false,
+      items: [],
+    };
+    setItems((prev) => {
+      if (insertIndex !== undefined) {
+        const next = [...prev];
+        next.splice(Math.max(0, Math.min(next.length, insertIndex)), 0, newItem);
+        return next;
+      }
+      return [...prev, newItem];
+    });
   }, []);
 
   const handleAddItem = useCallback(() => {
@@ -1835,10 +2133,11 @@ export default function MenuEditor() {
   }, []);
 
   const handleTopDragOver = useCallback((e: React.DragEvent, index: number) => {
+    const isResourceDrag = e.dataTransfer.types.includes("application/tree-master-resource");
+    if (!dragRef.current && !isResourceDrag) return;
+    if (dragRef.current?.fromIndex === index) return;
     e.preventDefault();
-    if (!dragRef.current) return;
-    if (dragRef.current.fromIndex === index) return;
-    e.dataTransfer.dropEffect = "move";
+    e.dataTransfer.dropEffect = isResourceDrag ? "copy" : "move";
 
     const rect = e.currentTarget.getBoundingClientRect();
     const midY = rect.top + rect.height / 2;
@@ -1855,8 +2154,23 @@ export default function MenuEditor() {
 
   const handleTopDrop = useCallback((e: React.DragEvent, toIndex: number) => {
     e.preventDefault();
-    if (!dragRef.current) return;
+    setDragOverId(null);
+    setDragPosition(null);
 
+    // Resource drop from left panel
+    const resourceData = e.dataTransfer.getData("application/tree-master-resource");
+    if (resourceData) {
+      try {
+        const resource = JSON.parse(resourceData) as ShopifyResource;
+        const rect = e.currentTarget.getBoundingClientRect();
+        const midY = rect.top + rect.height / 2;
+        const insertIndex = e.clientY >= midY ? toIndex + 1 : toIndex;
+        handleAddResource(resource, insertIndex);
+      } catch (_) {}
+      return;
+    }
+
+    if (!dragRef.current) return;
     const fromIndex = dragRef.current.fromIndex;
     const rect = e.currentTarget.getBoundingClientRect();
     const midY = rect.top + rect.height / 2;
@@ -1878,9 +2192,7 @@ export default function MenuEditor() {
     });
 
     dragRef.current = null;
-    setDragOverId(null);
-    setDragPosition(null);
-  }, []);
+  }, [handleAddResource]);
 
   // ---- Sub-item drag handlers ----
 
@@ -1991,9 +2303,14 @@ export default function MenuEditor() {
         <button onClick={handleDiscard}>Discard</button>
       </SaveBar>
 
-      <Layout>
-        <Layout.Section>
-          <BlockStack gap="400">
+      <div style={{ display: "grid", gridTemplateColumns: "260px 1fr 300px", gap: 16, alignItems: "start" }}>
+        <ResourceBrowser
+          collections={collections}
+          products={products}
+          pages={pages}
+          onAdd={handleAddResource}
+        />
+        <BlockStack gap="400">
             {errors.length > 0 && (
               <Banner tone="critical" title="Deploy failed">
                 {errors.map((e, i) => (
@@ -2073,11 +2390,26 @@ export default function MenuEditor() {
                 </div>
               )}
 
+              <div
+                onDragOver={(e) => {
+                  if (e.dataTransfer.types.includes("application/tree-master-resource")) {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "copy";
+                  }
+                }}
+                onDrop={(e) => {
+                  const data = e.dataTransfer.getData("application/tree-master-resource");
+                  if (data) {
+                    e.preventDefault();
+                    try { handleAddResource(JSON.parse(data) as ShopifyResource); } catch (_) {}
+                  }
+                }}
+              >
               {items.length === 0 ? (
                 <Box padding="600">
                   <BlockStack gap="300" inlineAlign="center">
                     <Text as="p" variant="bodyMd" tone="subdued">
-                      No items yet. Add your first menu item.
+                      No items yet. Drag from the left panel or add manually.
                     </Text>
                     <Button variant="primary" onClick={handleAddItem}>
                       + Add menu item
@@ -2170,12 +2502,10 @@ export default function MenuEditor() {
                   </div>
                 </div>
               )}
+              </div>
             </Card>
           </BlockStack>
-        </Layout.Section>
-
-        <Layout.Section variant="oneThird">
-          <BlockStack gap="400">
+        <BlockStack gap="400">
             {/* Live Tree Preview */}
             <Card>
               <BlockStack gap="300">
@@ -2403,9 +2733,8 @@ export default function MenuEditor() {
                 )}
               </BlockStack>
             </Card>
-          </BlockStack>
-        </Layout.Section>
-      </Layout>
+        </BlockStack>
+      </div>
       <Box paddingBlockEnd="1600" />
 
       {/* Bulk Badge Modal */}

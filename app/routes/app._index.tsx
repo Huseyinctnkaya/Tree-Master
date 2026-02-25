@@ -357,7 +357,7 @@ export default function Dashboard() {
                   <Text as="h2" variant="headingMd">
                     Menu Health
                   </Text>
-                  <Badge tone={healthBadgeTone}>{String(healthScore)}/100</Badge>
+                  <Badge tone={healthBadgeTone}>{`${healthScore}/100`}</Badge>
                 </InlineStack>
                 <ProgressBar
                   progress={healthScore}
