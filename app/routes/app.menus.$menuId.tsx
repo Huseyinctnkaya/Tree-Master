@@ -2309,6 +2309,7 @@ export default function MenuEditor() {
     // Resource drop from left panel
     const resourceData = e.dataTransfer.getData("application/tree-master-resource");
     if (resourceData) {
+      e.stopPropagation();
       try {
         const resource = JSON.parse(resourceData) as ShopifyResource;
         const rect = e.currentTarget.getBoundingClientRect();
