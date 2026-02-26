@@ -2278,9 +2278,9 @@ export default function MenuEditor() {
 
     const relativeX = e.clientX - rect.left;
 
-    // Sub-item being dragged: support child drop (right side) or above/below (left side)
+    // Sub-item being dragged: right 40% = child drop, left 60% = above/below (promote to root)
     if (isSubDrag) {
-      const isChildDrop = relativeX > rect.width * 0.05;
+      const isChildDrop = relativeX > rect.width * 0.6;
       setDragOverId(items[index]?.id ?? null);
       setDragPosition(isChildDrop ? "child" : e.clientY < midY ? "above" : "below");
       return;
@@ -2324,7 +2324,7 @@ export default function MenuEditor() {
       const { parentId, fromIndex: subFromIndex } = subDragRef.current;
       const rect = e.currentTarget.getBoundingClientRect();
       const relativeX = e.clientX - rect.left;
-      const isChildDrop = relativeX > rect.width * 0.05;
+      const isChildDrop = relativeX > rect.width * 0.6;
       const insertBelow = e.clientY >= rect.top + rect.height / 2;
       setItems((prev) => {
         const parentIndex = prev.findIndex((it) => it.id === parentId);
