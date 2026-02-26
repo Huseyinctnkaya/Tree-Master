@@ -2033,7 +2033,9 @@ export default function MenuEditor() {
   const [savedHandle, setSavedHandle] = useState(menu.handle);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedSubId, setExpandedSubId] = useState<string | null>(null);
-  const [collapsedParentIds, setCollapsedParentIds] = useState<Set<string>>(new Set());
+  const [collapsedParentIds, setCollapsedParentIds] = useState<Set<string>>(
+    () => new Set(menu.items.filter((item) => item.items.length > 0).map((item) => item.id))
+  );
   const [scheduleDate, setScheduleDate] = useState("");
   const [showSchedule, setShowSchedule] = useState(false);
   const [draftNote, setDraftNote] = useState("");
@@ -2237,7 +2239,19 @@ export default function MenuEditor() {
   // ---- Bulk edit handlers ----
 
   const handleBulkDelete = useCallback(() => {
-    setItems((prev) => prev.filter((item) => !selectedIds.has(item.id)));
+    setItems((prev) =>
+      prev
+        .filter((item) => !selectedIds.has(item.id))
+        .map((item) => ({
+          ...item,
+          items: item.items
+            .filter((sub) => !selectedIds.has(sub.id))
+            .map((sub) => ({
+              ...sub,
+              items: (sub.items ?? []).filter((nested) => !selectedIds.has(nested.id)),
+            })),
+        }))
+    );
     setSelectedIds(new Set());
     setBulkMode(false);
     setExpandedId(null);
@@ -2245,9 +2259,12 @@ export default function MenuEditor() {
 
   const handleBulkSetBadge = useCallback((badge: string | null) => {
     setItems((prev) =>
-      prev.map((item) =>
-        selectedIds.has(item.id) ? { ...item, badge } : item,
-      ),
+      prev.map((item) => ({
+        ...(selectedIds.has(item.id) ? { ...item, badge } : item),
+        items: item.items.map((sub) =>
+          selectedIds.has(sub.id) ? { ...sub, badge } : sub,
+        ),
+      }))
     );
     setSelectedIds(new Set());
     setBulkBadgeOpen(false);
@@ -2547,7 +2564,10 @@ export default function MenuEditor() {
                 item={child}
                 depth={depth}
                 isExpanded={false}
+                bulkMode={bulkMode}
+                selected={selectedIds.has(child.id)}
                 onToggle={() => {
+                  if (bulkMode) { toggleItemSelect(child.id); return; }
                   setExpandedId(rootItem.id);
                   setExpandedSubId(level1ParentId ?? null);
                 }}
@@ -2568,7 +2588,7 @@ export default function MenuEditor() {
         </div>
       );
     },
-    [handleChange],
+    [handleChange, bulkMode, selectedIds, toggleItemSelect],
   );
 
   const errors =
@@ -2965,7 +2985,10 @@ export default function MenuEditor() {
                                     isExpanded={false}
                                     isDragOver={dragOverSubId === sub.id}
                                     dragPosition={dragSubPosition ?? undefined}
+                                    bulkMode={bulkMode}
+                                    selected={selectedIds.has(sub.id)}
                                     onToggle={() => {
+                                      if (bulkMode) { toggleItemSelect(sub.id); return; }
                                       setExpandedId(item.id);
                                       setExpandedSubId(sub.id);
                                     }}
