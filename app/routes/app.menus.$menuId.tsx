@@ -83,6 +83,13 @@ const GET_MENU_QUERY = `#graphql
           url
           type
           resourceId
+          items {
+            id
+            title
+            url
+            type
+            resourceId
+          }
         }
       }
     }
@@ -352,6 +359,19 @@ function emptyItem(): MenuItem {
 
 function deepCloneItem(item: MenuItem): MenuItem {
   return { ...item, id: newId(), items: item.items.map(deepCloneItem) };
+}
+
+function countItemsRecursive(items: MenuItem[]): number {
+  return items.reduce((acc, item) => acc + 1 + countItemsRecursive(item.items ?? []), 0);
+}
+
+function removeNestedItemById(item: MenuItem, targetId: string): MenuItem {
+  return {
+    ...item,
+    items: item.items
+      .filter((child) => child.id !== targetId)
+      .map((child) => removeNestedItemById(child, targetId)),
+  };
 }
 
 // ---- Loader ----
@@ -2408,9 +2428,63 @@ export default function MenuEditor() {
     [items, menuTitle, menu.handle, submit],
   );
 
-  const totalItemCount = items.reduce(
-    (acc, item) => acc + 1 + (item.items?.length ?? 0),
-    0,
+  const totalItemCount = countItemsRecursive(items);
+
+  const renderNestedSubtree = useCallback(
+    (children: MenuItem[], rootItem: MenuItem, rootIndex: number, depth: number): JSX.Element | null => {
+      if (children.length === 0) return null;
+
+      return (
+        <div style={{ position: "relative", marginLeft: 20, marginTop: 3 }}>
+          <div
+            style={{
+              position: "absolute",
+              left: 0,
+              top: 0,
+              bottom: 21,
+              width: 1,
+              background: "#E1E3E5",
+              borderRadius: 1,
+            }}
+          />
+          {children.map((child) => (
+            <div key={child.id} style={{ position: "relative", paddingLeft: 20 }}>
+              <div
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: "50%",
+                  width: 20,
+                  height: 1,
+                  background: "#E1E3E5",
+                  transform: "translateY(-50%)",
+                }}
+              />
+              <ItemRow
+                item={child}
+                depth={depth}
+                isExpanded={false}
+                onToggle={() => {
+                  setExpandedId(rootItem.id);
+                  setExpandedSubId(null);
+                }}
+                onDelete={() => {
+                  const updatedRoot = removeNestedItemById(rootItem, child.id);
+                  handleChange(rootIndex, updatedRoot);
+                }}
+                onDragStart={() => {}}
+                onDragEnd={() => {}}
+                onDragOver={(e) => e.preventDefault()}
+                onDragLeave={() => {}}
+                onDrop={(e) => e.preventDefault()}
+              />
+              {renderNestedSubtree(child.items ?? [], rootItem, rootIndex, depth + 1)}
+            </div>
+          ))}
+        </div>
+      );
+    },
+    [handleChange],
   );
 
   const errors =
@@ -2769,6 +2843,7 @@ export default function MenuEditor() {
                                     onDragLeave={() => {}}
                                     onDrop={(e) => e.preventDefault()}
                                   />
+                                  {renderNestedSubtree(sub.items ?? [], item, index, 2)}
                                 </div>
                               ))}
                             </div>
