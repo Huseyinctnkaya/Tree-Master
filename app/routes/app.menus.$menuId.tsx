@@ -2175,23 +2175,32 @@ export default function MenuEditor() {
 
   const handleTopDragOver = useCallback((e: React.DragEvent, index: number) => {
     const isResourceDrag = e.dataTransfer.types.includes("application/tree-master-resource");
-    if (!dragRef.current && !isResourceDrag) return;
+    const isSubDrag = !!subDragRef.current;
+    if (!dragRef.current && !isResourceDrag && !isSubDrag) return;
     if (dragRef.current?.fromIndex === index) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = isResourceDrag ? "copy" : "move";
 
     const rect = e.currentTarget.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+
     const relativeX = e.clientX - rect.left;
+
+    // Sub-item being dragged: support child drop (right side) or above/below (left side)
+    if (isSubDrag) {
+      const isChildDrop = relativeX > rect.width * 0.05;
+      setDragOverId(items[index]?.id ?? null);
+      setDragPosition(isChildDrop ? "child" : e.clientY < midY ? "above" : "below");
+      return;
+    }
     const isChildDrop = !isResourceDrag && relativeX > rect.width * 0.05;
 
     if (isChildDrop) {
       setDragOverId(items[index]?.id ?? null);
       setDragPosition("child");
     } else {
-      const midY = rect.top + rect.height / 2;
-      const pos = e.clientY < midY ? "above" : "below";
       setDragOverId(items[index]?.id ?? null);
-      setDragPosition(pos);
+      setDragPosition(e.clientY < midY ? "above" : "below");
     }
   }, [items]);
 
@@ -2215,6 +2224,39 @@ export default function MenuEditor() {
         const insertIndex = e.clientY >= midY ? toIndex + 1 : toIndex;
         handleAddResource(resource, insertIndex);
       } catch (_) {}
+      return;
+    }
+
+    // Sub-item drag: extract from parent, insert as top-level or as child of target
+    if (subDragRef.current) {
+      const { parentId, fromIndex: subFromIndex } = subDragRef.current;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const relativeX = e.clientX - rect.left;
+      const isChildDrop = relativeX > rect.width * 0.05;
+      const insertBelow = e.clientY >= rect.top + rect.height / 2;
+      setItems((prev) => {
+        const parentIndex = prev.findIndex((it) => it.id === parentId);
+        if (parentIndex === -1) return prev;
+        const extracted = prev[parentIndex].items[subFromIndex];
+        if (!extracted) return prev;
+        const withoutSub = prev.map((it, i) =>
+          i === parentIndex ? { ...it, items: it.items.filter((_, si) => si !== subFromIndex) } : it
+        );
+        if (isChildDrop) {
+          // Add as child of target item
+          const adjustedIndex = parentIndex < toIndex ? toIndex - 1 : toIndex;
+          const target = withoutSub[adjustedIndex];
+          if (!target || target.id === parentId) return withoutSub;
+          const result = [...withoutSub];
+          result[adjustedIndex] = { ...target, items: [...(target.items ?? []), extracted] };
+          return result;
+        }
+        const insertAt = Math.min(withoutSub.length, insertBelow ? toIndex + 1 : toIndex);
+        const result = [...withoutSub];
+        result.splice(insertAt, 0, extracted);
+        return result;
+      });
+      subDragRef.current = null;
       return;
     }
 
@@ -2542,8 +2584,64 @@ export default function MenuEditor() {
                                 borderRadius: 1,
                               }} />
                               {item.items.map((sub, si) => (
-                                <div key={sub.id} style={{ position: "relative", paddingLeft: 20 }}>
-                                  {/* Horizontal branch line — sits outside ItemRow so white bg doesn't cover it */}
+                                <div
+                                  key={sub.id}
+                                  style={{ position: "relative", paddingLeft: 20 }}
+                                  onDragOver={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    const midY = rect.top + rect.height / 2;
+                                    const pos = e.clientY < midY ? "above" : "below";
+                                    if (subDragRef.current) {
+                                      // Sub-item reorder within same parent
+                                      if (subDragRef.current.fromIndex !== si) {
+                                        setDragOverSubId(sub.id);
+                                        setDragSubPosition(pos);
+                                      }
+                                    } else if (dragRef.current) {
+                                      // Root item → insert into this parent's sub-items
+                                      setDragOverSubId(sub.id);
+                                      setDragSubPosition(pos);
+                                    }
+                                  }}
+                                  onDragLeave={() => {
+                                    setDragOverSubId(null);
+                                    setDragSubPosition(null);
+                                  }}
+                                  onDrop={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    const dropBelow = e.clientY >= rect.top + rect.height / 2;
+                                    const insertAt = dropBelow ? si + 1 : si;
+                                    if (subDragRef.current) {
+                                      // Sub-item reorder
+                                      handleSubDrop(e, si, index);
+                                    } else if (dragRef.current) {
+                                      // Root item → add as sub-item at specific position
+                                      const fromIndex = dragRef.current.fromIndex;
+                                      setItems((prev) => {
+                                        const next = [...prev];
+                                        const [moved] = next.splice(fromIndex, 1);
+                                        const adjustedParent = fromIndex < index ? index - 1 : index;
+                                        const parent = next[adjustedParent];
+                                        if (!parent) return next;
+                                        const newItems = [...(parent.items ?? [])];
+                                        const adjustedInsert = Math.min(newItems.length, insertAt > si && fromIndex < index ? insertAt - 1 : insertAt);
+                                        newItems.splice(Math.max(0, adjustedInsert), 0, moved);
+                                        next[adjustedParent] = { ...parent, items: newItems };
+                                        return next;
+                                      });
+                                      dragRef.current = null;
+                                      setDragOverId(null);
+                                      setDragPosition(null);
+                                      setDragOverSubId(null);
+                                      setDragSubPosition(null);
+                                    }
+                                  }}
+                                >
+                                  {/* Horizontal branch line */}
                                   <div style={{
                                     position: "absolute",
                                     left: 0,
@@ -2569,9 +2667,9 @@ export default function MenuEditor() {
                                     }}
                                     onDragStart={(e) => handleSubDragStart(item.id, e, si)}
                                     onDragEnd={handleSubDragEnd}
-                                    onDragOver={(e) => handleSubDragOver(e, si, item.items)}
-                                    onDragLeave={handleSubDragLeave}
-                                    onDrop={(e) => handleSubDrop(e, si, index)}
+                                    onDragOver={(e) => e.preventDefault()}
+                                    onDragLeave={() => {}}
+                                    onDrop={(e) => e.preventDefault()}
                                   />
                                 </div>
                               ))}
