@@ -803,7 +803,7 @@ function ItemRow({
   depth: number;
   isExpanded: boolean;
   isDragOver?: boolean;
-  dragPosition?: "above" | "below";
+  dragPosition?: "above" | "below" | "child";
   noMargin?: boolean;
   onToggle: () => void;
   onDelete: () => void;
@@ -832,14 +832,29 @@ function ItemRow({
       onDrop={onDrop}
       style={{ position: "relative", marginBottom: noMargin ? 0 : depth > 0 ? 4 : 6 }}
     >
-      {/* Drop indicator line - only show above */}
-      {isDragOver && (
+      {/* Drop indicator line */}
+      {isDragOver && dragPosition !== "child" && (
         <div
           style={{
             position: "absolute",
             top: dragPosition === "above" ? -1 : undefined,
             bottom: dragPosition === "below" ? -1 : undefined,
             left: 0,
+            right: 0,
+            height: 2,
+            background: "#2C6ECB",
+            borderRadius: 1,
+            zIndex: 10,
+          }}
+        />
+      )}
+      {/* Child drop indicator — indented line at bottom */}
+      {isDragOver && dragPosition === "child" && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: -1,
+            left: 40,
             right: 0,
             height: 2,
             background: "#2C6ECB",
@@ -1951,7 +1966,7 @@ export default function MenuEditor() {
   // Drag state for top-level items
   const dragRef = useRef<{ fromIndex: number } | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
-  const [dragPosition, setDragPosition] = useState<"above" | "below" | null>(null);
+  const [dragPosition, setDragPosition] = useState<"above" | "below" | "child" | null>(null);
 
   // Drag state for sub-items (per expanded parent)
   const subDragRef = useRef<{ parentId: string; fromIndex: number } | null>(null);
@@ -2166,11 +2181,18 @@ export default function MenuEditor() {
     e.dataTransfer.dropEffect = isResourceDrag ? "copy" : "move";
 
     const rect = e.currentTarget.getBoundingClientRect();
-    const midY = rect.top + rect.height / 2;
-    const pos = e.clientY < midY ? "above" : "below";
+    const relativeX = e.clientX - rect.left;
+    const isChildDrop = !isResourceDrag && relativeX > rect.width * 0.05;
 
-    setDragOverId(items[index]?.id ?? null);
-    setDragPosition(pos);
+    if (isChildDrop) {
+      setDragOverId(items[index]?.id ?? null);
+      setDragPosition("child");
+    } else {
+      const midY = rect.top + rect.height / 2;
+      const pos = e.clientY < midY ? "above" : "below";
+      setDragOverId(items[index]?.id ?? null);
+      setDragPosition(pos);
+    }
   }, [items]);
 
   const handleTopDragLeave = useCallback(() => {
@@ -2199,14 +2221,32 @@ export default function MenuEditor() {
     if (!dragRef.current) return;
     const fromIndex = dragRef.current.fromIndex;
     const rect = e.currentTarget.getBoundingClientRect();
+
+    // Check if this is a "make child" drop (dragged far enough to the right)
+    const relativeX = e.clientX - rect.left;
+    const isChildDrop = relativeX > rect.width * 0.05 && fromIndex !== toIndex;
+
+    if (isChildDrop) {
+      setItems((prev) => {
+        const next = [...prev];
+        const [moved] = next.splice(fromIndex, 1);
+        const adjustedIndex = fromIndex < toIndex ? toIndex - 1 : toIndex;
+        const target = next[adjustedIndex];
+        if (!target) return next;
+        next[adjustedIndex] = { ...target, items: [...(target.items ?? []), moved] };
+        return next;
+      });
+      dragRef.current = null;
+      return;
+    }
+
     const midY = rect.top + rect.height / 2;
     const dropBelow = e.clientY >= midY;
 
     setItems((prev) => {
       const next = [...prev];
       const [moved] = next.splice(fromIndex, 1);
-      let insertAt = dropBelow ? toIndex : toIndex;
-      // Adjust if moving downward
+      let insertAt: number;
       if (fromIndex < toIndex) {
         insertAt = dropBelow ? toIndex : toIndex - 1;
       } else {
