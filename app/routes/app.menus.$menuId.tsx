@@ -868,7 +868,20 @@ function ItemRow({
             borderRadius: 1,
             zIndex: 10,
           }}
-        />
+        >
+          <div
+            style={{
+              position: "absolute",
+              left: 0,
+              top: "50%",
+              transform: "translateY(-50%)",
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              background: "#2C6ECB",
+            }}
+          />
+        </div>
       )}
       {/* Child drop indicator — indented line at bottom */}
       {isDragOver && dragPosition === "child" && (
@@ -883,7 +896,20 @@ function ItemRow({
             borderRadius: 1,
             zIndex: 10,
           }}
-        />
+        >
+          <div
+            style={{
+              position: "absolute",
+              left: 0,
+              top: "50%",
+              transform: "translateY(-50%)",
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              background: "#2C6ECB",
+            }}
+          />
+        </div>
       )}
 
       <div
@@ -1983,7 +2009,7 @@ export default function MenuEditor() {
   const navigation = useNavigation();
   const shopify = useAppBridge();
 
-  const [items, setItems] = useState<MenuItem[]>(menu.items);
+  const [items, setItemsRaw] = useState<MenuItem[]>(menu.items);
   const [menuTitle, setMenuTitle] = useState(menu.title);
   const [savedItems, setSavedItems] = useState<string>(JSON.stringify(menu.items));
   const [savedTitle, setSavedTitle] = useState(menu.title);
@@ -2008,11 +2034,40 @@ export default function MenuEditor() {
   const [dragOverSubId, setDragOverSubId] = useState<string | null>(null);
   const [dragSubPosition, setDragSubPosition] = useState<"above" | "below" | "child" | null>(null);
 
+  // Undo stack
+  const undoStack = useRef<MenuItem[][]>([]);
+  const setItems = useCallback((updater: MenuItem[] | ((prev: MenuItem[]) => MenuItem[])) => {
+    setItemsRaw((prev) => {
+      undoStack.current = [...undoStack.current, prev].slice(-50);
+      return typeof updater === "function" ? updater(prev) : updater;
+    });
+  }, []);
+
   const isSubmitting = navigation.state === "submitting";
   const prevActionRef = useRef<string>("");
 
   // Dirty check
   const isDirty = menuTitle !== savedTitle || JSON.stringify(items) !== savedItems;
+
+  // Undo (Ctrl+Z / Cmd+Z)
+  const handleUndo = useCallback(() => {
+    const snapshot = undoStack.current.pop();
+    if (!snapshot) return;
+    setItemsRaw(snapshot);
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === "z") {
+        const target = e.target as HTMLElement;
+        if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+        e.preventDefault();
+        handleUndo();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [handleUndo]);
 
   // Show/hide save bar
   useEffect(() => {
@@ -2056,7 +2111,8 @@ export default function MenuEditor() {
   }, [actionData, shopify, items, menuTitle]);
 
   const handleDiscard = useCallback(() => {
-    setItems(JSON.parse(savedItems));
+    setItemsRaw(JSON.parse(savedItems));
+    undoStack.current = [];
     setMenuTitle(savedTitle);
     setExpandedId(null);
     setExpandedSubId(null);
@@ -2128,7 +2184,8 @@ export default function MenuEditor() {
 
   const handleRestore = useCallback((data: string) => {
     const parsed = JSON.parse(data) as MenuItem[];
-    setItems(parsed);
+    setItemsRaw(parsed);
+    undoStack.current = [];
     setExpandedId(null);
     setExpandedSubId(null);
     shopify.toast.show("Snapshot restored!");
@@ -2436,28 +2493,31 @@ export default function MenuEditor() {
 
       return (
         <div style={{ position: "relative", marginLeft: 20, marginTop: 3 }}>
-          <div
-            style={{
-              position: "absolute",
-              left: 0,
-              top: 0,
-              bottom: 21,
-              width: 1,
-              background: "#E1E3E5",
-              borderRadius: 1,
-            }}
-          />
-          {children.map((child) => (
+          {children.map((child, idx) => {
+            const isLast = idx === children.length - 1;
+            return (
             <div key={child.id} style={{ position: "relative", paddingLeft: 20 }}>
+              {/* Per-item vertical connector: full height for non-last, row-center only for last */}
               <div
                 style={{
                   position: "absolute",
                   left: 0,
-                  top: "50%",
+                  top: 0,
+                  ...(isLast ? { height: 22 } : { bottom: 0 }),
+                  width: 1,
+                  background: "#E1E3E5",
+                  borderRadius: 1,
+                }}
+              />
+              {/* Horizontal branch at fixed row center */}
+              <div
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: 21,
                   width: 20,
                   height: 1,
                   background: "#E1E3E5",
-                  transform: "translateY(-50%)",
                 }}
               />
               <ItemRow
@@ -2480,7 +2540,8 @@ export default function MenuEditor() {
               />
               {renderNestedSubtree(child.items ?? [], rootItem, rootIndex, depth + 1)}
             </div>
-          ))}
+            );
+          })}
         </div>
       );
     },
@@ -2674,17 +2735,9 @@ export default function MenuEditor() {
                           {/* Show sub-items under parent, collapsible */}
                           {item.items.length > 0 && !collapsedParentIds.has(item.id) && (
                             <div style={{ position: "relative", marginLeft: 20, marginTop: 3 }}>
-                              {/* Vertical tree line — runs from top to center of last item */}
-                              <div style={{
-                                position: "absolute",
-                                left: 0,
-                                top: 0,
-                                bottom: 21,
-                                width: 1,
-                                background: "#E1E3E5",
-                                borderRadius: 1,
-                              }} />
-                              {item.items.map((sub, si) => (
+                              {item.items.map((sub, si) => {
+                                const isSubLast = si === item.items.length - 1;
+                                return (
                                 <div
                                   key={sub.id}
                                   style={{ position: "relative", paddingLeft: 20 }}
@@ -2813,15 +2866,24 @@ export default function MenuEditor() {
                                     }
                                   }}
                                 >
-                                  {/* Horizontal branch line */}
+                                  {/* Per-item vertical connector */}
                                   <div style={{
                                     position: "absolute",
                                     left: 0,
-                                    top: "50%",
+                                    top: 0,
+                                    ...(isSubLast ? { height: 22 } : { bottom: 0 }),
+                                    width: 1,
+                                    background: "#E1E3E5",
+                                    borderRadius: 1,
+                                  }} />
+                                  {/* Horizontal branch at fixed row center */}
+                                  <div style={{
+                                    position: "absolute",
+                                    left: 0,
+                                    top: 21,
                                     width: 20,
                                     height: 1,
                                     background: "#E1E3E5",
-                                    transform: "translateY(-50%)",
                                   }} />
                                   <ItemRow
                                     item={sub}
@@ -2845,7 +2907,8 @@ export default function MenuEditor() {
                                   />
                                   {renderNestedSubtree(sub.items ?? [], item, index, 2)}
                                 </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           )}
                         </div>
