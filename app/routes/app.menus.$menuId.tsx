@@ -2011,8 +2011,10 @@ export default function MenuEditor() {
 
   const [items, setItemsRaw] = useState<MenuItem[]>(menu.items);
   const [menuTitle, setMenuTitle] = useState(menu.title);
+  const [menuHandle, setMenuHandle] = useState(menu.handle);
   const [savedItems, setSavedItems] = useState<string>(JSON.stringify(menu.items));
   const [savedTitle, setSavedTitle] = useState(menu.title);
+  const [savedHandle, setSavedHandle] = useState(menu.handle);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedSubId, setExpandedSubId] = useState<string | null>(null);
   const [collapsedParentIds, setCollapsedParentIds] = useState<Set<string>>(new Set());
@@ -2047,7 +2049,7 @@ export default function MenuEditor() {
   const prevActionRef = useRef<string>("");
 
   // Dirty check
-  const isDirty = menuTitle !== savedTitle || JSON.stringify(items) !== savedItems;
+  const isDirty = menuTitle !== savedTitle || menuHandle !== savedHandle || JSON.stringify(items) !== savedItems;
 
   // Undo (Ctrl+Z / Cmd+Z)
   const handleUndo = useCallback(() => {
@@ -2090,11 +2092,13 @@ export default function MenuEditor() {
         shopify.toast.show("Deployed to store!");
         setSavedItems(JSON.stringify(items));
         setSavedTitle(menuTitle);
+        setSavedHandle(menuHandle);
       }
       if (actionData.intent === "save_draft") {
         shopify.toast.show("Draft saved!");
         setSavedItems(JSON.stringify(items));
         setSavedTitle(menuTitle);
+        setSavedHandle(menuHandle);
       }
       if (actionData.intent === "schedule") {
         shopify.toast.show("Deploy scheduled!");
@@ -2114,9 +2118,10 @@ export default function MenuEditor() {
     setItemsRaw(JSON.parse(savedItems));
     undoStack.current = [];
     setMenuTitle(savedTitle);
+    setMenuHandle(savedHandle);
     setExpandedId(null);
     setExpandedSubId(null);
-  }, [savedItems, savedTitle]);
+  }, [savedItems, savedTitle, savedHandle]);
 
   const handleChange = useCallback((index: number, updated: MenuItem) => {
     setItems((prev) => {
@@ -2196,21 +2201,21 @@ export default function MenuEditor() {
     fd.append("intent", "delete_snapshot");
     fd.append("snapshotId", snapshotId);
     fd.append("menuTitle", menuTitle);
-    fd.append("menuHandle", menu.handle);
+    fd.append("menuHandle", menuHandle);
     fd.append("items", JSON.stringify(items));
     submit(fd, { method: "post" });
-  }, [menuTitle, menu.handle, items, submit]);
+  }, [menuTitle, menuHandle, items, submit]);
 
   const handleSaveDraft = useCallback(() => {
     const fd = new FormData();
     fd.append("intent", "save_draft");
     fd.append("menuTitle", menuTitle);
-    fd.append("menuHandle", menu.handle);
+    fd.append("menuHandle", menuHandle);
     fd.append("items", JSON.stringify(items));
     if (draftNote.trim()) fd.append("note", draftNote.trim());
     submit(fd, { method: "post" });
     setDraftNote("");
-  }, [menuTitle, menu.handle, items, draftNote, submit]);
+  }, [menuTitle, menuHandle, items, draftNote, submit]);
 
   // ---- Bulk edit handlers ----
 
@@ -2479,11 +2484,11 @@ export default function MenuEditor() {
       const fd = new FormData();
       fd.append("intent", intent);
       fd.append("menuTitle", menuTitle);
-      fd.append("menuHandle", menu.handle);
+      fd.append("menuHandle", menuHandle);
       fd.append("items", JSON.stringify(items));
       submit(fd, { method: "post" });
     },
-    [items, menuTitle, menu.handle, submit],
+    [items, menuTitle, menuHandle, submit],
   );
 
   const totalItemCount = countItemsRecursive(items);
@@ -2555,7 +2560,7 @@ export default function MenuEditor() {
       : [];
 
   return (
-    <Page backAction={{ url: "/app/menus" }} title={menuTitle} subtitle={`Handle: /${menu.handle}  ·  ${totalItemCount} items`}>
+    <Page backAction={{ url: "/app/menus" }} title={menuTitle} subtitle={`Handle: /${menuHandle}  ·  ${totalItemCount} items`}>
       <style>{`
         @keyframes menuItemExpand {
           from { opacity: 0; transform: translateY(-12px); }
@@ -2588,12 +2593,22 @@ export default function MenuEditor() {
             )}
 
             <Card>
-              <TextField
-                label="Menu title"
-                value={menuTitle}
-                onChange={setMenuTitle}
-                autoComplete="off"
-              />
+              <BlockStack gap="300">
+                <TextField
+                  label="Menu title"
+                  value={menuTitle}
+                  onChange={setMenuTitle}
+                  autoComplete="off"
+                />
+                <TextField
+                  label="Menu handle"
+                  value={menuHandle}
+                  onChange={(val) => setMenuHandle(slugify(val))}
+                  autoComplete="off"
+                  prefix="/"
+                  helpText="URL-friendly identifier for this menu"
+                />
+              </BlockStack>
             </Card>
 
             <Card padding="0">
@@ -3055,7 +3070,7 @@ export default function MenuEditor() {
                             fd.append("intent", "cancel_schedule");
                             fd.append("scheduleId", sd.id);
                             fd.append("menuTitle", menuTitle);
-                            fd.append("menuHandle", menu.handle);
+                            fd.append("menuHandle", menuHandle);
                             fd.append("items", JSON.stringify(items));
                             submit(fd, { method: "post" });
                           }}
@@ -3094,7 +3109,7 @@ export default function MenuEditor() {
                           const fd = new FormData();
                           fd.append("intent", "schedule");
                           fd.append("menuTitle", menuTitle);
-                          fd.append("menuHandle", menu.handle);
+                          fd.append("menuHandle", menuHandle);
                           fd.append("items", JSON.stringify(items));
                           fd.append("scheduledAt", scheduleDate);
                           submit(fd, { method: "post" });
