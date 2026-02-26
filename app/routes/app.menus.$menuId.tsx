@@ -246,6 +246,8 @@ const BADGE_MAP: Record<string, { bg: string; text: string }> = Object.fromEntri
   BADGE_OPTIONS.map((o) => [o.value, { bg: o.bg, text: o.text }]),
 );
 
+const MAX_NESTING_DEPTH = 2;
+
 function detectAppType(shopifyType: string, url: string): string {
   if (shopifyType !== "HTTP") return shopifyType;
   const u = url || "";
@@ -1413,12 +1415,11 @@ function SmartUrlField({
 function ExpandedForm({
   item,
   depth,
-  expandedSubId,
+  initialExpandedChildId,
   onChange,
   onDelete,
   onDuplicate,
   onToggle,
-  onToggleSub,
   onSubDragStart,
   onSubDragEnd,
   onSubDragOver,
@@ -1429,20 +1430,25 @@ function ExpandedForm({
 }: {
   item: MenuItem;
   depth: number;
-  expandedSubId: string | null;
+  initialExpandedChildId?: string | null;
   onChange: (updated: MenuItem) => void;
   onDelete: () => void;
   onDuplicate?: () => void;
   onToggle: () => void;
-  onToggleSub: (id: string | null) => void;
   onSubDragStart: (e: React.DragEvent, index: number) => void;
   onSubDragEnd: (e: React.DragEvent) => void;
   onSubDragOver: (e: React.DragEvent, index: number) => void;
   onSubDragLeave: (e: React.DragEvent) => void;
   onSubDrop: (e: React.DragEvent, index: number) => void;
   dragOverSubId: string | null;
-  dragSubPosition: "above" | "below" | null;
+  dragSubPosition: "above" | "below" | "child" | null;
 }) {
+  const [expandedChildId, setExpandedChildId] = useState<string | null>(initialExpandedChildId ?? null);
+
+  useEffect(() => {
+    setExpandedChildId(initialExpandedChildId ?? null);
+  }, [initialExpandedChildId, item.id]);
+
   const handleTypeChange = useCallback(
     (val: string) => {
       const typeInfo = ALL_LINK_TYPES[val];
@@ -1474,8 +1480,8 @@ function ExpandedForm({
   const handleAddSubItem = useCallback(() => {
     const newItem = emptyItem();
     onChange({ ...item, items: [...item.items, newItem] });
-    onToggleSub(newItem.id);
-  }, [item, onChange, onToggleSub]);
+    setExpandedChildId(newItem.id);
+  }, [item, onChange]);
 
   const handleSubDuplicate = useCallback(
     (i: number) => {
@@ -1635,7 +1641,7 @@ function ExpandedForm({
           </div>
 
           {/* Add sub-item button */}
-          {depth === 0 && (
+          {depth < MAX_NESTING_DEPTH && (
             <InlineStack align="end">
               <Button size="slim" onClick={handleAddSubItem}>
                 + Add sub-item
@@ -1644,25 +1650,24 @@ function ExpandedForm({
           )}
 
           {/* Sub-items */}
-          {depth === 0 && item.items.length > 0 && (
+          {item.items.length > 0 && (
             <div style={{ marginTop: 4 }}>
               <Divider />
               <div style={{ marginTop: 8 }}>
                 <BlockStack gap="0">
                   {item.items.map((sub, i) => {
-                    const isSubExpanded = expandedSubId === sub.id;
+                    const isSubExpanded = expandedChildId === sub.id;
 
                     if (isSubExpanded) {
                       return (
                         <div key={sub.id} style={{ paddingLeft: 20 }}>
                           <ExpandedForm
                             item={sub}
-                            depth={1}
-                            expandedSubId={null}
+                            depth={depth + 1}
                             onChange={(u) => handleSubChange(i, u)}
                             onDelete={() => handleSubDelete(i)}
-                            onToggle={() => onToggleSub(null)}
-                            onToggleSub={() => {}}
+                            onToggle={() => setExpandedChildId(null)}
+                            initialExpandedChildId={null}
                             onSubDragStart={() => {}}
                             onSubDragEnd={() => {}}
                             onSubDragOver={() => {}}
@@ -1679,18 +1684,28 @@ function ExpandedForm({
                       <div key={sub.id} style={{ paddingLeft: 20 }}>
                         <ItemRow
                           item={sub}
-                          depth={1}
+                          depth={depth + 1}
                           isExpanded={false}
-                          isDragOver={dragOverSubId === sub.id}
-                          dragPosition={dragSubPosition ?? undefined}
-                          onToggle={() => onToggleSub(sub.id)}
+                          isDragOver={depth === 0 ? dragOverSubId === sub.id : undefined}
+                          dragPosition={depth === 0 ? dragSubPosition ?? undefined : undefined}
+                          onToggle={() => setExpandedChildId((prev) => (prev === sub.id ? null : sub.id))}
                           onDelete={() => handleSubDelete(i)}
                           onDuplicate={() => handleSubDuplicate(i)}
-                          onDragStart={(e) => onSubDragStart(e, i)}
-                          onDragEnd={onSubDragEnd}
-                          onDragOver={(e) => onSubDragOver(e, i)}
-                          onDragLeave={onSubDragLeave}
-                          onDrop={(e) => onSubDrop(e, i)}
+                          onDragStart={(e) => {
+                            if (depth === 0) onSubDragStart(e, i);
+                          }}
+                          onDragEnd={(e) => {
+                            if (depth === 0) onSubDragEnd(e);
+                          }}
+                          onDragOver={(e) => {
+                            if (depth === 0) onSubDragOver(e, i);
+                          }}
+                          onDragLeave={(e) => {
+                            if (depth === 0) onSubDragLeave(e);
+                          }}
+                          onDrop={(e) => {
+                            if (depth === 0) onSubDrop(e, i);
+                          }}
                         />
                       </div>
                     );
@@ -1971,7 +1986,7 @@ export default function MenuEditor() {
   // Drag state for sub-items (per expanded parent)
   const subDragRef = useRef<{ parentId: string; fromIndex: number } | null>(null);
   const [dragOverSubId, setDragOverSubId] = useState<string | null>(null);
-  const [dragSubPosition, setDragSubPosition] = useState<"above" | "below" | null>(null);
+  const [dragSubPosition, setDragSubPosition] = useState<"above" | "below" | "child" | null>(null);
 
   const isSubmitting = navigation.state === "submitting";
   const prevActionRef = useRef<string>("");
@@ -2337,29 +2352,42 @@ export default function MenuEditor() {
     setDragSubPosition(null);
   }, []);
 
-  const handleSubDrop = useCallback((e: React.DragEvent, toIndex: number, parentIndex: number) => {
+  const handleSubDrop = useCallback((e: React.DragEvent, toIndex: number, targetParentId: string) => {
     e.preventDefault();
     e.stopPropagation();
     if (!subDragRef.current) return;
 
-    const fromIndex = subDragRef.current.fromIndex;
+    const { parentId: sourceParentId, fromIndex } = subDragRef.current;
     const rect = e.currentTarget.getBoundingClientRect();
     const midY = rect.top + rect.height / 2;
     const dropBelow = e.clientY >= midY;
 
     setItems((prev) => {
+      if (sourceParentId === targetParentId && fromIndex === toIndex) return prev;
+
       const next = [...prev];
-      const parent = { ...next[parentIndex], items: [...next[parentIndex].items] };
-      const [moved] = parent.items.splice(fromIndex, 1);
+      const sourceParentIndex = next.findIndex((it) => it.id === sourceParentId);
+      if (sourceParentIndex === -1) return prev;
+      const sourceParent = { ...next[sourceParentIndex], items: [...next[sourceParentIndex].items] };
+      const [moved] = sourceParent.items.splice(fromIndex, 1);
+      if (!moved) return prev;
+      next[sourceParentIndex] = sourceParent;
+
+      const targetParentIndex = next.findIndex((it) => it.id === targetParentId);
+      if (targetParentIndex === -1) return next;
+      const targetParent = { ...next[targetParentIndex], items: [...next[targetParentIndex].items] };
+
       let insertAt: number;
-      if (fromIndex < toIndex) {
+      if (sourceParentId === targetParentId && fromIndex < toIndex) {
         insertAt = dropBelow ? toIndex : toIndex - 1;
+      } else if (sourceParentId === targetParentId) {
+        insertAt = dropBelow ? toIndex + 1 : toIndex;
       } else {
         insertAt = dropBelow ? toIndex + 1 : toIndex;
       }
-      insertAt = Math.max(0, Math.min(parent.items.length, insertAt));
-      parent.items.splice(insertAt, 0, moved);
-      next[parentIndex] = parent;
+      insertAt = Math.max(0, Math.min(targetParent.items.length, insertAt));
+      targetParent.items.splice(insertAt, 0, moved);
+      next[targetParentIndex] = targetParent;
       return next;
     });
 
@@ -2527,17 +2555,16 @@ export default function MenuEditor() {
                             key={item.id}
                             item={item}
                             depth={0}
-                            expandedSubId={expandedSubId}
+                            initialExpandedChildId={expandedSubId}
                             onChange={(u) => handleChange(index, u)}
                             onDelete={() => handleDelete(index)}
                             onDuplicate={() => handleDuplicate(index)}
                             onToggle={() => handleToggle(item.id)}
-                            onToggleSub={setExpandedSubId}
                             onSubDragStart={(e, i) => handleSubDragStart(item.id, e, i)}
                             onSubDragEnd={handleSubDragEnd}
                             onSubDragOver={(e, i) => handleSubDragOver(e, i, item.items)}
                             onSubDragLeave={handleSubDragLeave}
-                            onSubDrop={(e, i) => handleSubDrop(e, i, index)}
+                            onSubDrop={(e, i) => handleSubDrop(e, i, item.id)}
                             dragOverSubId={dragOverSubId}
                             dragSubPosition={dragSubPosition}
                           />
@@ -2588,22 +2615,30 @@ export default function MenuEditor() {
                                   key={sub.id}
                                   style={{ position: "relative", paddingLeft: 20 }}
                                   onDragOver={(e) => {
+                                    const isRootDrag = !!dragRef.current;
+                                    const isSubDrag = !!subDragRef.current;
+                                    if (!isRootDrag && !isSubDrag) return;
                                     e.preventDefault();
                                     e.stopPropagation();
+                                    e.dataTransfer.dropEffect = "move";
                                     const rect = e.currentTarget.getBoundingClientRect();
+                                    const relativeX = e.clientX - rect.left;
                                     const midY = rect.top + rect.height / 2;
-                                    const pos = e.clientY < midY ? "above" : "below";
-                                    if (subDragRef.current) {
-                                      // Sub-item reorder within same parent
-                                      if (subDragRef.current.fromIndex !== si) {
+                                    const pos = relativeX > rect.width * 0.16 ? "child" : e.clientY < midY ? "above" : "below";
+
+                                    if (isSubDrag) {
+                                      // Avoid showing drop indicator on the dragged row itself.
+                                      const sameItem = subDragRef.current?.parentId === item.id && subDragRef.current?.fromIndex === si;
+                                      if (!sameItem) {
                                         setDragOverSubId(sub.id);
                                         setDragSubPosition(pos);
                                       }
-                                    } else if (dragRef.current) {
-                                      // Root item → insert into this parent's sub-items
-                                      setDragOverSubId(sub.id);
-                                      setDragSubPosition(pos);
+                                      return;
                                     }
+
+                                    // Root item → insert into this parent's sub-items or nest under current sub-item.
+                                    setDragOverSubId(sub.id);
+                                    setDragSubPosition(pos);
                                   }}
                                   onDragLeave={() => {
                                     setDragOverSubId(null);
@@ -2613,24 +2648,87 @@ export default function MenuEditor() {
                                     e.preventDefault();
                                     e.stopPropagation();
                                     const rect = e.currentTarget.getBoundingClientRect();
+                                    const relativeX = e.clientX - rect.left;
+                                    const isChildDrop = relativeX > rect.width * 0.16;
                                     const dropBelow = e.clientY >= rect.top + rect.height / 2;
-                                    const insertAt = dropBelow ? si + 1 : si;
                                     if (subDragRef.current) {
-                                      // Sub-item reorder
-                                      handleSubDrop(e, si, index);
+                                      if (isChildDrop) {
+                                        // Sub-item → child of sub-item (create one deeper level)
+                                        const { parentId: sourceParentId, fromIndex } = subDragRef.current;
+                                        setItems((prev) => {
+                                          const sourceParentIndex = prev.findIndex((it) => it.id === sourceParentId);
+                                          if (sourceParentIndex === -1) return prev;
+                                          const sourceParent = prev[sourceParentIndex];
+                                          const moved = sourceParent.items[fromIndex];
+                                          if (!moved || moved.id === sub.id) return prev;
+
+                                          const next = [...prev];
+                                          next[sourceParentIndex] = {
+                                            ...sourceParent,
+                                            items: sourceParent.items.filter((_, idx) => idx !== fromIndex),
+                                          };
+
+                                          const targetParentIndex = next.findIndex((it) => it.id === item.id);
+                                          if (targetParentIndex === -1) return next;
+                                          const targetParent = next[targetParentIndex];
+                                          const targetSubIndex = targetParent.items.findIndex((s) => s.id === sub.id);
+                                          if (targetSubIndex === -1) return next;
+                                          const targetSub = targetParent.items[targetSubIndex];
+                                          const targetChildren = [...(targetSub.items ?? []), moved];
+                                          const updatedSubs = [...targetParent.items];
+                                          updatedSubs[targetSubIndex] = { ...targetSub, items: targetChildren };
+                                          next[targetParentIndex] = { ...targetParent, items: updatedSubs };
+                                          return next;
+                                        });
+                                        subDragRef.current = null;
+                                        setDragOverSubId(null);
+                                        setDragSubPosition(null);
+                                        return;
+                                      }
+
+                                      // Sub-item reorder as sibling
+                                      handleSubDrop(e, si, item.id);
                                     } else if (dragRef.current) {
-                                      // Root item → add as sub-item at specific position
+                                      if (isChildDrop) {
+                                        // Root item → child of this sub-item
+                                        const fromIndex = dragRef.current.fromIndex;
+                                        setItems((prev) => {
+                                          const next = [...prev];
+                                          const [moved] = next.splice(fromIndex, 1);
+                                          const targetParentIndex = next.findIndex((it) => it.id === item.id);
+                                          if (!moved || targetParentIndex === -1) return next;
+                                          const targetParent = next[targetParentIndex];
+                                          const targetSubIndex = targetParent.items.findIndex((s) => s.id === sub.id);
+                                          if (targetSubIndex === -1) return next;
+                                          const targetSub = targetParent.items[targetSubIndex];
+                                          const targetChildren = [...(targetSub.items ?? []), moved];
+                                          const updatedSubs = [...targetParent.items];
+                                          updatedSubs[targetSubIndex] = { ...targetSub, items: targetChildren };
+                                          next[targetParentIndex] = { ...targetParent, items: updatedSubs };
+                                          return next;
+                                        });
+                                        dragRef.current = null;
+                                        setDragOverId(null);
+                                        setDragPosition(null);
+                                        setDragOverSubId(null);
+                                        setDragSubPosition(null);
+                                        return;
+                                      }
+
+                                      // Root item → sibling among this parent's sub-items
                                       const fromIndex = dragRef.current.fromIndex;
                                       setItems((prev) => {
                                         const next = [...prev];
                                         const [moved] = next.splice(fromIndex, 1);
-                                        const adjustedParent = fromIndex < index ? index - 1 : index;
-                                        const parent = next[adjustedParent];
-                                        if (!parent) return next;
+                                        const targetParentIndex = next.findIndex((it) => it.id === item.id);
+                                        const parent = targetParentIndex !== -1 ? next[targetParentIndex] : null;
+                                        if (!moved || !parent) return next;
                                         const newItems = [...(parent.items ?? [])];
-                                        const adjustedInsert = Math.min(newItems.length, insertAt > si && fromIndex < index ? insertAt - 1 : insertAt);
+                                        const targetSubIndex = newItems.findIndex((s) => s.id === sub.id);
+                                        const safeInsertAt = targetSubIndex === -1 ? newItems.length : dropBelow ? targetSubIndex + 1 : targetSubIndex;
+                                        const adjustedInsert = Math.min(newItems.length, safeInsertAt);
                                         newItems.splice(Math.max(0, adjustedInsert), 0, moved);
-                                        next[adjustedParent] = { ...parent, items: newItems };
+                                        next[targetParentIndex] = { ...parent, items: newItems };
                                         return next;
                                       });
                                       dragRef.current = null;
