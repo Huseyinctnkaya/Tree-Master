@@ -2488,7 +2488,7 @@ export default function MenuEditor() {
   const totalItemCount = countItemsRecursive(items);
 
   const renderNestedSubtree = useCallback(
-    (children: MenuItem[], rootItem: MenuItem, rootIndex: number, depth: number): JSX.Element | null => {
+    (children: MenuItem[], rootItem: MenuItem, rootIndex: number, depth: number, level1ParentId?: string): JSX.Element | null => {
       if (children.length === 0) return null;
 
       return (
@@ -2526,7 +2526,7 @@ export default function MenuEditor() {
                 isExpanded={false}
                 onToggle={() => {
                   setExpandedId(rootItem.id);
-                  setExpandedSubId(null);
+                  setExpandedSubId(level1ParentId ?? null);
                 }}
                 onDelete={() => {
                   const updatedRoot = removeNestedItemById(rootItem, child.id);
@@ -2538,7 +2538,7 @@ export default function MenuEditor() {
                 onDragLeave={() => {}}
                 onDrop={(e) => e.preventDefault()}
               />
-              {renderNestedSubtree(child.items ?? [], rootItem, rootIndex, depth + 1)}
+              {renderNestedSubtree(child.items ?? [], rootItem, rootIndex, depth + 1, level1ParentId)}
             </div>
             );
           })}
@@ -2685,12 +2685,53 @@ export default function MenuEditor() {
                       const isExpanded = expandedId === item.id;
 
                       if (isExpanded) {
+                        // If a sub-item was clicked from the flat list, show its form directly
+                        if (expandedSubId) {
+                          const subIdx = item.items.findIndex((s) => s.id === expandedSubId);
+                          const subItem = subIdx !== -1 ? item.items[subIdx] : null;
+                          if (subItem) {
+                            return (
+                              <ExpandedForm
+                                key={expandedSubId}
+                                item={subItem}
+                                depth={1}
+                                initialExpandedChildId={null}
+                                onChange={(updated) => {
+                                  const newSubs = [...item.items];
+                                  newSubs[subIdx] = updated;
+                                  handleChange(index, { ...item, items: newSubs });
+                                }}
+                                onDelete={() => {
+                                  const newSubs = item.items.filter((s) => s.id !== expandedSubId);
+                                  handleChange(index, { ...item, items: newSubs });
+                                  setExpandedId(null);
+                                  setExpandedSubId(null);
+                                }}
+                                onDuplicate={() => {
+                                  const newSubs = [...item.items];
+                                  const clone = deepCloneItem(subItem);
+                                  newSubs.splice(subIdx + 1, 0, clone);
+                                  handleChange(index, { ...item, items: newSubs });
+                                }}
+                                onToggle={() => { setExpandedId(null); setExpandedSubId(null); }}
+                                onSubDragStart={() => {}}
+                                onSubDragEnd={() => {}}
+                                onSubDragOver={() => {}}
+                                onSubDragLeave={() => {}}
+                                onSubDrop={() => {}}
+                                dragOverSubId={null}
+                                dragSubPosition={null}
+                              />
+                            );
+                          }
+                        }
+
                         return (
                           <ExpandedForm
                             key={item.id}
                             item={item}
                             depth={0}
-                            initialExpandedChildId={expandedSubId}
+                            initialExpandedChildId={null}
                             onChange={(u) => handleChange(index, u)}
                             onDelete={() => handleDelete(index)}
                             onDuplicate={() => handleDuplicate(index)}
@@ -2905,7 +2946,7 @@ export default function MenuEditor() {
                                     onDragLeave={() => {}}
                                     onDrop={(e) => e.preventDefault()}
                                   />
-                                  {renderNestedSubtree(sub.items ?? [], item, index, 2)}
+                                  {renderNestedSubtree(sub.items ?? [], item, index, 2, sub.id)}
                                 </div>
                                 );
                               })}
