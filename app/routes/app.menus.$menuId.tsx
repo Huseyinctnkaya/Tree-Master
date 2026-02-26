@@ -39,6 +39,7 @@ type MenuItem = {
   metaDescription: string;
   badge: string | null;
   openInNewTab: boolean;
+  collectionTags: string;
   items: MenuItem[];
 };
 
@@ -239,6 +240,7 @@ type ItemMeta = {
   metaDescription: string;
   badge: string | null;
   openInNewTab: boolean;
+  collectionTags: string;
 };
 
 const BADGE_OPTIONS = [
@@ -297,6 +299,7 @@ function normalizeItems(items: any[], metaMap: Record<string, ItemMeta> = {}): M
       metaDescription: meta.metaDescription || "",
       badge: meta.badge || null,
       openInNewTab: meta.openInNewTab || false,
+      collectionTags: meta.collectionTags || "",
       items: normalizeItems(item.items ?? [], metaMap),
     };
   });
@@ -354,7 +357,7 @@ function newId() {
 }
 
 function emptyItem(): MenuItem {
-  return { id: newId(), title: "", url: "", type: "HTTP", resourceId: null, handle: "", seoKeywords: "", metaDescription: "", badge: null, openInNewTab: false, items: [] };
+  return { id: newId(), title: "", url: "", type: "HTTP", resourceId: null, handle: "", seoKeywords: "", metaDescription: "", badge: null, openInNewTab: false, collectionTags: "", items: [] };
 }
 
 function deepCloneItem(item: MenuItem): MenuItem {
@@ -452,13 +455,14 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 function extractMetaMap(items: MenuItem[]): Record<string, ItemMeta> {
   const map: Record<string, ItemMeta> = {};
   for (const item of items) {
-    if (item.handle || item.seoKeywords || item.metaDescription || item.badge || item.openInNewTab) {
+    if (item.handle || item.seoKeywords || item.metaDescription || item.badge || item.openInNewTab || item.collectionTags) {
       map[item.id] = {
         handle: item.handle || "",
         seoKeywords: item.seoKeywords || "",
         metaDescription: item.metaDescription || "",
         badge: item.badge || null,
         openInNewTab: item.openInNewTab || false,
+        collectionTags: item.collectionTags || "",
       };
     }
     if (item.items?.length) {
@@ -1645,6 +1649,18 @@ function ExpandedForm({
           {/* Smart URL Field */}
           <SmartUrlField item={item} onChange={onChange} />
 
+          {/* Collection tag filter — only for COLLECTION type */}
+          {item.type === "COLLECTION" && (
+            <TextField
+              label="Filter collection by tags (optional)"
+              value={item.collectionTags}
+              onChange={(val) => onChange({ ...item, collectionTags: val })}
+              autoComplete="off"
+              placeholder="Şapkalar, mavi, yaz"
+              helpText="Comma-separated tags to filter products shown in this collection"
+            />
+          )}
+
           {/* SEO Section */}
           <div style={{ marginTop: 4 }}>
             <div
@@ -2154,6 +2170,7 @@ export default function MenuEditor() {
       metaDescription: "",
       badge: null,
       openInNewTab: false,
+      collectionTags: "",
       items: [],
     };
     setItems((prev) => {
