@@ -19,9 +19,13 @@ import {
 import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import { getShopPlan } from "../utils/billing.server";
+
+const FREE_CUSTOM_MENU_LIMIT = 1;
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
+  const { isPremium } = await getShopPlan(request);
 
   const customMenus = await prisma.customMenu.findMany({
     where: { shop: session.shop },
@@ -29,6 +33,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   });
 
   return {
+    isPremium,
     customMenus: customMenus.map((m) => ({
       id: m.id,
       name: m.name,
@@ -42,6 +47,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session } = await authenticate.admin(request);
+  const { isPremium } = await getShopPlan(request);
   const formData = await request.formData();
   const intent = formData.get("intent") as string;
 
@@ -49,6 +55,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const name = (formData.get("name") as string)?.trim();
     if (!name) {
       return { success: false, error: "Menu name is required." };
+    }
+
+    if (!isPremium) {
+      const count = await prisma.customMenu.count({ where: { shop: session.shop } });
+      if (count >= FREE_CUSTOM_MENU_LIMIT) {
+        return { success: false, error: "plan_limit" };
+      }
     }
 
     const menu = await prisma.customMenu.create({
@@ -69,12 +82,20 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const original = await prisma.customMenu.findUnique({ where: { id: menuId } });
     if (!original) return { success: false, error: "Menu not found." };
 
+    if (!isPremium) {
+      const count = await prisma.customMenu.count({ where: { shop: session.shop } });
+      if (count >= FREE_CUSTOM_MENU_LIMIT) {
+        return { success: false, error: "plan_limit" };
+      }
+    }
+
     await prisma.customMenu.create({
       data: {
         shop: session.shop,
         name: `${original.name} (copy)`,
         html: original.html,
         css: original.css,
+        js: original.js,
         status: "draft",
       },
     });
@@ -85,12 +106,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function CustomMenusList() {
-  const { customMenus } = useLoaderData<typeof loader>();
+  const { customMenus, isPremium } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
   const navigation = useNavigation();
   const navigate = useNavigate();
   const shopify = useAppBridge();
+
+  const atLimit = !isPremium && customMenus.length >= 1;
 
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -98,6 +121,9 @@ export default function CustomMenusList() {
   useEffect(() => {
     if (actionData?.success && actionData?.menuId) {
       navigate(`/app/custom-menus/${actionData.menuId}`);
+    }
+    if (actionData?.success === false && actionData?.error === "plan_limit") {
+      navigate("/app/pricing");
     }
   }, [actionData, navigate]);
   const [menuName, setMenuName] = useState("");
@@ -141,9 +167,15 @@ export default function CustomMenusList() {
       title="Custom Menus"
       subtitle="Create menus with custom HTML & CSS code"
       primaryAction={
-        <Button variant="primary" onClick={() => setCreateOpen(true)}>
-          Create Custom Menu
-        </Button>
+        atLimit ? (
+          <Button variant="primary" url="/app/pricing">
+            Upgrade to create more
+          </Button>
+        ) : (
+          <Button variant="primary" onClick={() => setCreateOpen(true)}>
+            Create Custom Menu
+          </Button>
+        )
       }
     >
       <TitleBar title="Custom Menus" />
@@ -186,9 +218,15 @@ export default function CustomMenusList() {
                     <Text as="p" variant="bodySm" tone="subdued">
                       Create a custom menu with your own HTML and CSS code.
                     </Text>
-                    <Button variant="primary" onClick={() => setCreateOpen(true)}>
-                      Create Custom Menu
-                    </Button>
+                    {atLimit ? (
+                      <Button variant="primary" url="/app/pricing">
+                        Upgrade to create more
+                      </Button>
+                    ) : (
+                      <Button variant="primary" onClick={() => setCreateOpen(true)}>
+                        Create Custom Menu
+                      </Button>
+                    )}
                   </BlockStack>
                 </Box>
               ) : (
@@ -232,7 +270,7 @@ export default function CustomMenusList() {
                             <Button size="micro" onClick={() => navigate(`/app/custom-menus/${menu.id}`)}>
                               Edit
                             </Button>
-                            <Button size="micro" onClick={() => handleDuplicate(menu.id)}>
+                            <Button size="micro" onClick={() => atLimit ? navigate("/app/pricing") : handleDuplicate(menu.id)}>
                               Duplicate
                             </Button>
                             <Button

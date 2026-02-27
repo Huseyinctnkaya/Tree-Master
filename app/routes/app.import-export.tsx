@@ -10,6 +10,7 @@ import {
   Text,
   Button,
   Banner,
+  Badge,
   DropZone,
   Box,
 } from "@shopify/polaris";
@@ -124,6 +125,7 @@ function buildUpdateInput(items: MenuItem[]): object[] {
 // ---- Loader ----
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
+  const { isPremium } = await (await import("../utils/billing.server")).getShopPlan(request);
   const { admin, session } = await authenticate.admin(request);
   const response = await admin.graphql(GET_ALL_MENUS_QUERY);
   const data = await response.json();
@@ -137,17 +139,21 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }),
   );
 
-  return { menus, shop: session.shop };
+  return { menus, shop: session.shop, isPremium };
 };
 
 // ---- Action ----
 
 export const action = async ({ request }: ActionFunctionArgs) => {
+  const { isPremium } = await (await import("../utils/billing.server")).getShopPlan(request);
   const { admin, session } = await authenticate.admin(request);
   const formData = await request.formData();
   const intent = formData.get("intent") as string;
 
   if (intent === "import") {
+    if (!isPremium) {
+      return { success: false, intent: "import", error: "plan_limit" };
+    }
     const importJson = formData.get("importData") as string;
 
     let importData: ExportData;
@@ -237,7 +243,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 // ---- Component ----
 
 export default function ImportExport() {
-  const { menus, shop } = useLoaderData<typeof loader>();
+  const { menus, shop, isPremium } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
   const navigation = useNavigation();
@@ -358,98 +364,114 @@ export default function ImportExport() {
             {/* Import */}
             <Card>
               <BlockStack gap="400">
-                <Text as="h2" variant="headingMd">
-                  Import Settings
-                </Text>
+                <InlineStack align="space-between" blockAlign="center">
+                  <Text as="h2" variant="headingMd">
+                    Import Settings
+                  </Text>
+                  {!isPremium && <Badge tone="warning">Premium</Badge>}
+                </InlineStack>
                 <Text as="p" variant="bodySm" tone="subdued">
                   Upload a previously exported JSON file to restore your menus.
                 </Text>
 
+                {!isPremium ? (
+                  <Banner tone="warning">
+                    <p>
+                      Importing menus is a <strong>Premium</strong> feature.{" "}
+                      <a href="/app/pricing" style={{ color: "inherit", fontWeight: 600 }}>Upgrade your plan</a> to unlock import.
+                    </p>
+                  </Banner>
+                ) : (
                 <Banner tone="warning">
                   <p>
                     Importing will overwrite existing menus that match by handle.
                     A backup snapshot will be saved automatically before changes are applied.
                   </p>
                 </Banner>
-
-                <DropZone
-                  accept=".json,application/json"
-                  type="file"
-                  onDrop={handleDropZoneDrop}
-                  allowMultiple={false}
-                >
-                  {importFile ? (
-                    <Box padding="400">
-                      <BlockStack gap="200" inlineAlign="center">
-                        <Text as="p" variant="bodyMd" fontWeight="semibold">
-                          {importFile.name}
-                        </Text>
-                        <Text as="p" variant="bodySm" tone="subdued">
-                          {(importFile.size / 1024).toFixed(1)} KB
-                        </Text>
-                      </BlockStack>
-                    </Box>
-                  ) : (
-                    <DropZone.FileUpload actionHint="Accepts .json" />
-                  )}
-                </DropZone>
-
-                {importError && (
-                  <Banner tone="critical">
-                    <p>{importError}</p>
-                  </Banner>
                 )}
 
-                {importPreview && (
-                  <Card>
-                    <BlockStack gap="200">
-                      <Text as="h3" variant="headingSm">
-                        File Preview
-                      </Text>
-                      <Text as="p" variant="bodySm" tone="subdued">
-                        Exported from: {importPreview.shop}
-                      </Text>
-                      <Text as="p" variant="bodySm" tone="subdued">
-                        Date: {new Date(importPreview.exportedAt).toLocaleString()}
-                      </Text>
-                      <Text as="p" variant="bodySm" tone="subdued">
-                        Contains {importPreview.menus.length} menu(s):{" "}
-                        {importPreview.menus.map((m) => m.title).join(", ")}
-                      </Text>
-                    </BlockStack>
-                  </Card>
-                )}
+                {isPremium && (
+                  <>
+                    <DropZone
+                      accept=".json,application/json"
+                      type="file"
+                      onDrop={handleDropZoneDrop}
+                      allowMultiple={false}
+                    >
+                      {importFile ? (
+                        <Box padding="400">
+                          <BlockStack gap="200" inlineAlign="center">
+                            <Text as="p" variant="bodyMd" fontWeight="semibold">
+                              {importFile.name}
+                            </Text>
+                            <Text as="p" variant="bodySm" tone="subdued">
+                              {(importFile.size / 1024).toFixed(1)} KB
+                            </Text>
+                          </BlockStack>
+                        </Box>
+                      ) : (
+                        <DropZone.FileUpload actionHint="Accepts .json" />
+                      )}
+                    </DropZone>
 
-                {actionData?.intent === "import" && !actionData.success && (
-                  <Banner tone="critical">
-                    <p>{actionData.error || "Some menus could not be imported."}</p>
-                    {actionData.errors?.map((err: string, i: number) => (
-                      <p key={i}>{err}</p>
-                    ))}
-                  </Banner>
-                )}
+                    {importError && (
+                      <Banner tone="critical">
+                        <p>{importError}</p>
+                      </Banner>
+                    )}
 
-                {actionData?.intent === "import" && actionData.success && (
-                  <Banner tone="success">
-                    <p>
-                      Import complete! {actionData.updatedCount} menu(s) updated
-                      {actionData.skippedCount > 0 &&
-                        `, ${actionData.skippedCount} skipped (no matching handle found)`}
-                      .
-                    </p>
-                  </Banner>
-                )}
+                    {importPreview && (
+                      <Card>
+                        <BlockStack gap="200">
+                          <Text as="h3" variant="headingSm">
+                            File Preview
+                          </Text>
+                          <Text as="p" variant="bodySm" tone="subdued">
+                            Exported from: {importPreview.shop}
+                          </Text>
+                          <Text as="p" variant="bodySm" tone="subdued">
+                            Date: {new Date(importPreview.exportedAt).toLocaleString()}
+                          </Text>
+                          <Text as="p" variant="bodySm" tone="subdued">
+                            Contains {importPreview.menus.length} menu(s):{" "}
+                            {importPreview.menus.map((m) => m.title).join(", ")}
+                          </Text>
+                        </BlockStack>
+                      </Card>
+                    )}
 
-                <InlineStack>
-                  <Button
-                    variant="primary"
-                    onClick={handleImport}
-                    disabled={!importPreview}
-                    loading={isImporting}
-                  >
-                    Import Menus
-                  </Button>
-                </InlineStack>
+                    {actionData?.intent === "import" && !actionData.success && (
+                      <Banner tone="critical">
+                        <p>{actionData.error || "Some menus could not be imported."}</p>
+                        {actionData.errors?.map((err: string, i: number) => (
+                          <p key={i}>{err}</p>
+                        ))}
+                      </Banner>
+                    )}
+
+                    {actionData?.intent === "import" && actionData.success && (
+                      <Banner tone="success">
+                        <p>
+                          Import complete! {actionData.updatedCount} menu(s) updated
+                          {actionData.skippedCount > 0 &&
+                            `, ${actionData.skippedCount} skipped (no matching handle found)`}
+                          .
+                        </p>
+                      </Banner>
+                    )}
+
+                    <InlineStack>
+                      <Button
+                        variant="primary"
+                        onClick={handleImport}
+                        disabled={!importPreview}
+                        loading={isImporting}
+                      >
+                        Import Menus
+                      </Button>
+                    </InlineStack>
+                  </>
+                )}
               </BlockStack>
             </Card>
           </BlockStack>

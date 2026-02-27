@@ -5,6 +5,7 @@ import {
   useSubmit,
   useActionData,
   useNavigation,
+  useNavigate,
   useRevalidator,
 } from "@remix-run/react";
 import {
@@ -109,6 +110,7 @@ function buildMenuItems(items: TemplateItem[]): object[] {
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
+  const { isPremium } = await (await import("../utils/billing.server")).getShopPlan(request);
   const response = await admin.graphql(MENUS_QUERY);
   const data = await response.json();
 
@@ -128,11 +130,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     };
   });
 
-  return { menus };
+  return { menus, isPremium };
 };
+
+const FREE_MENU_LIMIT = 3;
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
+  const { isPremium } = await (await import("../utils/billing.server")).getShopPlan(request);
   const formData = await request.formData();
   const intent = formData.get("intent") as string;
 
@@ -141,6 +146,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     if (!title || title.trim().length === 0) {
       return { success: false, intent: "create", error: "Menu title is required." };
+    }
+
+    if (!isPremium) {
+      const check = await admin.graphql(MENUS_QUERY);
+      const checkData = await check.json();
+      const count = (checkData.data?.menus?.edges ?? []).length;
+      if (count >= FREE_MENU_LIMIT) {
+        return { success: false, intent: "create", error: "plan_limit" };
+      }
     }
 
     const trimmedTitle = title.trim();
@@ -218,7 +232,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function MenusList() {
-  const { menus } = useLoaderData<typeof loader>();
+  const { menus, isPremium } = useLoaderData<typeof loader>();
+  const navigate = useNavigate();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
   const navigation = useNavigation();
@@ -282,7 +297,12 @@ export default function MenusList() {
     if (actionKey === handledActionRef.current) return;
     handledActionRef.current = actionKey;
 
-    if (!actionData.success) return;
+    if (!actionData.success) {
+      if ((actionData as any).error === "plan_limit") {
+        navigate("/app/pricing");
+      }
+      return;
+    }
 
     if (actionData.intent === "create") {
       shopify.toast.show("Menu created!");
@@ -403,7 +423,9 @@ export default function MenusList() {
                 </Box>
 
                 {/* Table Rows */}
-                {menus.map((menu: typeof menus[number]) => (
+                {menus.map((menu: typeof menus[number], index: number) => {
+                  const locked = !isPremium && index >= FREE_MENU_LIMIT;
+                  return (
                   <div key={menu.id}>
                     <Divider />
                     <Box paddingBlock="300" paddingInline="400">
@@ -413,11 +435,17 @@ export default function MenusList() {
                           gridTemplateColumns: "1fr 1fr 100px 100px 1fr",
                           alignItems: "center",
                           gap: 8,
+                          opacity: locked ? 0.5 : 1,
                         }}
                       >
-                        <Text as="span" variant="bodyMd" fontWeight="semibold">
-                          {menu.title}
-                        </Text>
+                        <InlineStack gap="200" blockAlign="center">
+                          <Text as="span" variant="bodyMd" fontWeight="semibold">
+                            {menu.title}
+                          </Text>
+                          {locked && (
+                            <Badge tone="warning">Premium</Badge>
+                          )}
+                        </InlineStack>
                         <Text as="span" variant="bodySm" tone="subdued">
                           /{menu.handle}
                         </Text>
@@ -428,9 +456,15 @@ export default function MenusList() {
                           <Badge tone="info">{String(menu.totalCount)}</Badge>
                         </div>
                         <InlineStack align="end" gap="200">
-                          <Button size="micro" url={`/app/menus/${menu.numericId}`}>
-                            Edit
-                          </Button>
+                          {locked ? (
+                            <Button size="micro" url="/app/pricing">
+                              Upgrade
+                            </Button>
+                          ) : (
+                            <Button size="micro" url={`/app/menus/${menu.numericId}`}>
+                              Edit
+                            </Button>
+                          )}
                           <Button
                             size="micro"
                             tone="critical"
@@ -444,7 +478,8 @@ export default function MenusList() {
                       </div>
                     </Box>
                   </div>
-                ))}
+                  );
+                })}
               </BlockStack>
             )}
           </Card>

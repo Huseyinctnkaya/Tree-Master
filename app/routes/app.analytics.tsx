@@ -151,6 +151,11 @@ function getEmptyTitleItems(items: MenuItem[]): number {
 // ---- Loader ----
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
+  const { isPremium } = await (await import("../utils/billing.server")).getShopPlan(request);
+  if (!isPremium) {
+    return { isPremium: false };
+  }
+
   const { admin } = await authenticate.admin(request);
   const response = await admin.graphql(GET_ALL_MENUS_QUERY);
   const data = await response.json();
@@ -215,6 +220,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     : null;
 
   return {
+    isPremium: true,
     totalMenus,
     totalItems,
     avgItemsPerMenu,
@@ -246,6 +252,11 @@ function collectHttpUrls(
 }
 
 export const action = async ({ request }: ActionFunctionArgs) => {
+  const { isPremium } = await (await import("../utils/billing.server")).getShopPlan(request);
+  if (!isPremium) {
+    return { broken: [], checkedCount: 0 };
+  }
+
   const { admin, session } = await authenticate.admin(request);
 
   const response = await admin.graphql(GET_ALL_MENUS_QUERY);
@@ -322,6 +333,67 @@ function StatCard({ title, value, subtitle }: { title: string; value: string | n
 type LinkCheckResult = { url: string; title: string; menuTitle: string; status: number; ok: boolean };
 
 export default function Analytics() {
+  const loaderData = useLoaderData<typeof loader>();
+
+  if (!loaderData.isPremium) {
+    return (
+      <Page backAction={{ content: "Dashboard", url: "/app" }} title="Analytics">
+        <TitleBar title="Analytics" />
+        <Layout>
+          <Layout.Section>
+            <Card>
+              <BlockStack gap="400">
+                <InlineStack align="space-between" blockAlign="center">
+                  <Text as="h2" variant="headingMd">
+                    Analytics
+                  </Text>
+                  <Badge tone="warning">Premium</Badge>
+                </InlineStack>
+                <Text as="p" variant="bodySm" tone="subdued">
+                  Get insights into your menu structure, health scores, type distribution, broken link scanning, and more.
+                </Text>
+                <Banner tone="warning">
+                  <p>
+                    Analytics is a <strong>Premium</strong> feature.{" "}
+                    <a href="/app/pricing" style={{ color: "inherit", fontWeight: 600 }}>
+                      Upgrade your plan
+                    </a>{" "}
+                    to unlock full analytics and reporting.
+                  </p>
+                </Banner>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+                    gap: 16,
+                    opacity: 0.35,
+                    pointerEvents: "none",
+                    userSelect: "none",
+                    filter: "blur(3px)",
+                  }}
+                >
+                  {["Total Menus", "Total Items", "Avg Items / Menu", "Max Depth"].map((label) => (
+                    <Card key={label}>
+                      <BlockStack gap="200">
+                        <Text as="p" variant="bodySm" tone="subdued">{label}</Text>
+                        <Text as="p" variant="headingXl">—</Text>
+                      </BlockStack>
+                    </Card>
+                  ))}
+                </div>
+                <InlineStack>
+                  <Button variant="primary" url="/app/pricing">
+                    Upgrade to Premium
+                  </Button>
+                </InlineStack>
+              </BlockStack>
+            </Card>
+          </Layout.Section>
+        </Layout>
+      </Page>
+    );
+  }
+
   const {
     totalMenus,
     totalItems,
@@ -334,7 +406,7 @@ export default function Analytics() {
     emptyTitleCount,
     largestMenu,
     menus,
-  } = useLoaderData<typeof loader>();
+  } = loaderData as any;
 
   // ---- Audit computations ----
 
