@@ -1,59 +1,75 @@
 {% comment %}
-  Tree Master - Custom Menu Block
-  Renders custom HTML/CSS from the Tree Master app via app proxy.
+  Tree Master - Custom Menu App Embed
+  Automatically finds the header navigation and replaces it with a custom menu.
 {% endcomment %}
 
 {% assign menu_id = block.settings.custom_menu_id %}
 
 {% if menu_id != blank %}
-  <div class="tree-master-menu tree-master-custom" data-menu-id="{{ menu_id }}" {{ block.shopify_attributes }}>
-    <div class="tree-master-menu-content" id="tree-menu-{{ menu_id }}">
-      <noscript>
-        <p>Enable JavaScript to view this custom menu.</p>
-      </noscript>
-    </div>
-  </div>
+<script>
+  (function() {
+    var menuId = "{{ menu_id }}";
+    var navSelector = {{ block.settings.nav_selector | default: "header nav" | json }};
 
-  <script>
-    (function() {
-      var menuId = "{{ menu_id }}";
-      var container = document.getElementById("tree-menu-" + menuId);
-      if (!container) return;
-
+    function injectMenu() {
       fetch("/apps/tree-master/menu/" + menuId)
         .then(function(res) { return res.json(); })
         .then(function(data) {
-          if (data.html) {
-            container.innerHTML = data.html;
+          var nav = document.querySelector(navSelector);
+          if (!nav) {
+            console.warn("Tree Master: navigation element not found for selector \"" + navSelector + "\"");
+            return;
           }
+
+          // Inject CSS into <head>
           if (data.css) {
             var style = document.createElement("style");
+            style.setAttribute("data-tree-master", menuId);
             style.textContent = data.css;
-            container.appendChild(style);
+            document.head.appendChild(style);
           }
+
+          // Hide original nav, insert custom menu right after
+          nav.style.display = "none";
+          var existing = document.getElementById("tree-master-nav-" + menuId);
+          if (existing) existing.remove();
+
+          var wrapper = document.createElement("div");
+          wrapper.id = "tree-master-nav-" + menuId;
+          wrapper.innerHTML = data.html || "";
+          nav.parentNode.insertBefore(wrapper, nav.nextSibling);
         })
         .catch(function(err) {
           console.error("Tree Master: Failed to load menu", err);
         });
-    })();
-  </script>
+    }
 
-{% else %}
-  <div {{ block.shopify_attributes }}>
-    <p style="color: #888; text-align: center; padding: 20px;">Enter a Custom Menu ID in the block settings.</p>
-  </div>
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", injectMenu);
+    } else {
+      injectMenu();
+    }
+  })();
+</script>
 {% endif %}
 
 {% schema %}
 {
   "name": "Tree Master Menu",
-  "target": "section",
+  "target": "body",
   "settings": [
     {
       "type": "text",
       "id": "custom_menu_id",
       "label": "Custom Menu ID",
-      "info": "Enter the menu ID from the Tree Master app. Find it under Custom Menus in the app."
+      "info": "Enter the menu ID from the Tree Master app. Find it under Custom Menus."
+    },
+    {
+      "type": "text",
+      "id": "nav_selector",
+      "label": "Navigation CSS Selector",
+      "default": "header nav",
+      "info": "CSS selector pointing to your theme's header navigation. 'header nav' works for most themes (Dawn, Refresh, Sense, etc.)."
     }
   ]
 }
