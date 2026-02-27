@@ -61,15 +61,10 @@
             document.head.appendChild(style);
           }
 
-          // Hide original nav, insert custom menu right after
-          nav.style.display = "none";
-          var existing = document.getElementById("tree-master-nav-" + menuId);
-          if (existing) existing.remove();
-
-          var wrapper = document.createElement("div");
-          wrapper.id = "tree-master-nav-" + menuId;
-          wrapper.innerHTML = data.html;
-          nav.parentNode.insertBefore(wrapper, nav.nextSibling);
+          // Replace nav's inner content with custom menu
+          nav.setAttribute("data-tree-master-original", nav.innerHTML);
+          nav.setAttribute("data-tree-master-id", menuId);
+          nav.innerHTML = data.html;
 
           console.log("Tree Master: menu injected successfully.");
         })
