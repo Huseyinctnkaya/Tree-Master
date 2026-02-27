@@ -208,7 +208,7 @@ export default function CustomMenusList() {
                       <Box paddingBlock="300" paddingInline="400">
                         <InlineStack align="space-between" blockAlign="center">
                           <BlockStack gap="100">
-                            <InlineStack gap="200" blockAlign="center">
+                            <InlineStack gap="200" blockAlign="center" align="start">
                               <Text as="span" variant="bodyMd" fontWeight="semibold">
                                 {menu.name}
                               </Text>

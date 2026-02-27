@@ -1,205 +1,48 @@
 {% comment %}
   Tree Master - Custom Menu Block
-  Renders either a Shopify menu with custom styling or fully custom HTML/CSS code.
-  Mode: "shopify" uses a Shopify menu handle, "custom" uses app proxy data.
+  Renders custom HTML/CSS from the Tree Master app via app proxy.
 {% endcomment %}
 
-{% if block.settings.mode == "custom" %}
-  {% comment %} Custom Code Mode - Fetch from App Proxy {% endcomment %}
-  {% assign menu_id = block.settings.custom_menu_id %}
+{% assign menu_id = block.settings.custom_menu_id %}
 
-  {% if menu_id != blank %}
-    <div class="tree-master-menu tree-master-custom" data-menu-id="{{ menu_id }}" {{ block.shopify_attributes }}>
-      {% comment %} Custom CSS {% endcomment %}
-      {% if block.settings.custom_css != blank %}
-        <style>{{ block.settings.custom_css }}</style>
-      {% endif %}
-
-      {% comment %} Fetch menu HTML from app proxy {% endcomment %}
-      <div class="tree-master-menu-content" id="tree-menu-{{ menu_id }}">
-        <noscript>
-          <p>Enable JavaScript to view this custom menu.</p>
-        </noscript>
-      </div>
+{% if menu_id != blank %}
+  <div class="tree-master-menu tree-master-custom" data-menu-id="{{ menu_id }}" {{ block.shopify_attributes }}>
+    <div class="tree-master-menu-content" id="tree-menu-{{ menu_id }}">
+      <noscript>
+        <p>Enable JavaScript to view this custom menu.</p>
+      </noscript>
     </div>
+  </div>
 
-    <script>
-      (function() {
-        var menuId = "{{ menu_id }}";
-        var container = document.getElementById("tree-menu-" + menuId);
-        if (!container) return;
+  <script>
+    (function() {
+      var menuId = "{{ menu_id }}";
+      var container = document.getElementById("tree-menu-" + menuId);
+      if (!container) return;
 
-        fetch("/apps/tree-master/menu/" + menuId)
-          .then(function(res) { return res.json(); })
-          .then(function(data) {
-            if (data.html) {
-              container.innerHTML = data.html;
-            }
-          })
-          .catch(function(err) {
-            console.error("Tree Master: Failed to load menu", err);
-          });
-      })();
-    </script>
-
-  {% else %}
-    <div {{ block.shopify_attributes }}>
-      <p style="color: #888; text-align: center; padding: 20px;">Select a custom menu in the block settings.</p>
-    </div>
-  {% endif %}
+      fetch("/apps/tree-master/menu/" + menuId)
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (data.html) {
+            container.innerHTML = data.html;
+          }
+          if (data.css) {
+            var style = document.createElement("style");
+            style.textContent = data.css;
+            container.appendChild(style);
+          }
+        })
+        .catch(function(err) {
+          console.error("Tree Master: Failed to load menu", err);
+        });
+    })();
+  </script>
 
 {% else %}
-  {% comment %} Shopify Menu Mode - Enhanced rendering of native Shopify menus {% endcomment %}
-  {% assign menu_handle = block.settings.menu_handle %}
-
-  {% if menu_handle != blank %}
-    <div class="tree-master-menu tree-master-shopify" {{ block.shopify_attributes }}>
-      {% if block.settings.custom_css != blank %}
-        <style>{{ block.settings.custom_css }}</style>
-      {% endif %}
-
-      {% assign layout = block.settings.layout %}
-      {% if layout == "mega" %}
-        {% assign layout_class = "tree-menu__list--mega" %}
-      {% elsif layout == "vertical" %}
-        {% assign layout_class = "tree-menu__list--vertical" %}
-      {% else %}
-        {% assign layout_class = "tree-menu__list--horizontal" %}
-      {% endif %}
-
-      <nav class="tree-menu" role="navigation" aria-label="{{ linklists[menu_handle].title }}">
-        <ul class="tree-menu__list {{ layout_class }}">
-          {% for link in linklists[menu_handle].links %}
-            <li class="tree-menu__item{% if link.links.size > 0 %} tree-menu__item--has-children{% endif %}{% if link.active %} tree-menu__item--active{% endif %}">
-              <a href="{{ link.url }}" class="tree-menu__link"{% if link.current %} aria-current="page"{% endif %}>
-                {{ link.title }}
-              </a>
-
-              {% if link.links.size > 0 %}
-                <ul class="tree-menu__submenu">
-                  {% for child in link.links %}
-                    <li class="tree-menu__subitem{% if child.active %} tree-menu__subitem--active{% endif %}">
-                      <a href="{{ child.url }}" class="tree-menu__sublink"{% if child.current %} aria-current="page"{% endif %}>
-                        {{ child.title }}
-                      </a>
-                    </li>
-                  {% endfor %}
-                </ul>
-              {% endif %}
-            </li>
-          {% endfor %}
-        </ul>
-      </nav>
-    </div>
-  {% else %}
-    <div {{ block.shopify_attributes }}>
-      <p style="color: #888; text-align: center; padding: 20px;">Select a menu in the block settings.</p>
-    </div>
-  {% endif %}
+  <div {{ block.shopify_attributes }}>
+    <p style="color: #888; text-align: center; padding: 20px;">Enter a Custom Menu ID in the block settings.</p>
+  </div>
 {% endif %}
-
-<style>
-  .tree-master-menu {
-    --tree-menu-gap: 16px;
-    --tree-menu-font-size: 14px;
-  }
-
-  .tree-menu {
-    font-size: var(--tree-menu-font-size);
-  }
-
-  .tree-menu__list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
-
-  /* Horizontal layout */
-  .tree-menu__list--horizontal {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--tree-menu-gap);
-  }
-
-  /* Vertical layout */
-  .tree-menu__list--vertical {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  /* Mega menu layout */
-  .tree-menu__list--mega {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--tree-menu-gap);
-  }
-
-  .tree-menu__list--mega > .tree-menu__item {
-    flex: 1;
-    min-width: 150px;
-  }
-
-  .tree-menu__item {
-    position: relative;
-  }
-
-  .tree-menu__link,
-  .tree-menu__sublink {
-    text-decoration: none;
-    color: inherit;
-    display: block;
-    padding: 6px 0;
-    transition: opacity 0.15s ease;
-  }
-
-  .tree-menu__link:hover,
-  .tree-menu__sublink:hover {
-    opacity: 0.7;
-  }
-
-  .tree-menu__item--active > .tree-menu__link,
-  .tree-menu__subitem--active > .tree-menu__sublink {
-    font-weight: 600;
-  }
-
-  /* Submenu */
-  .tree-menu__submenu {
-    list-style: none;
-    margin: 0;
-    padding: 0 0 0 16px;
-  }
-
-  .tree-menu__list--horizontal .tree-menu__submenu {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    min-width: 180px;
-    background: #fff;
-    border: 1px solid #e5e5e5;
-    border-radius: 8px;
-    padding: 8px 0;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-    opacity: 0;
-    visibility: hidden;
-    transition: opacity 0.2s ease, visibility 0.2s ease;
-    z-index: 100;
-  }
-
-  .tree-menu__list--horizontal .tree-menu__submenu .tree-menu__sublink {
-    padding: 6px 16px;
-  }
-
-  .tree-menu__list--horizontal .tree-menu__item:hover > .tree-menu__submenu {
-    opacity: 1;
-    visibility: visible;
-  }
-
-  .tree-menu__sublink {
-    font-size: 0.9em;
-    opacity: 0.8;
-  }
-</style>
 
 {% schema %}
 {
@@ -207,46 +50,10 @@
   "target": "section",
   "settings": [
     {
-      "type": "select",
-      "id": "mode",
-      "label": "Menu Mode",
-      "options": [
-        { "value": "shopify", "label": "Shopify Menu" },
-        { "value": "custom", "label": "Custom Code" }
-      ],
-      "default": "shopify",
-      "info": "Shopify Menu uses your store menus. Custom Code uses the Tree Master code editor."
-    },
-    {
-      "type": "link_list",
-      "id": "menu_handle",
-      "label": "Shopify Menu",
-      "default": "main-menu",
-      "info": "Select which Shopify menu to display (Shopify mode only)"
-    },
-    {
       "type": "text",
       "id": "custom_menu_id",
       "label": "Custom Menu ID",
-      "info": "Enter the custom menu ID from Tree Master app (Custom mode only)"
-    },
-    {
-      "type": "select",
-      "id": "layout",
-      "label": "Layout",
-      "options": [
-        { "value": "horizontal", "label": "Horizontal" },
-        { "value": "vertical", "label": "Vertical" },
-        { "value": "mega", "label": "Mega Menu" }
-      ],
-      "default": "horizontal",
-      "info": "Menu layout style (Shopify mode only)"
-    },
-    {
-      "type": "textarea",
-      "id": "custom_css",
-      "label": "Additional CSS",
-      "info": "Add custom CSS to override default menu styles"
+      "info": "Enter the menu ID from the Tree Master app. Find it under Custom Menus in the app."
     }
   ]
 }
