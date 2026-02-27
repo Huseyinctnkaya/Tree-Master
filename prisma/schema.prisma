@@ -63,6 +63,7 @@ model CustomMenu {
   name      String
   html      String   @default("")
   css       String   @default("")
+  js        String   @default("")
   status    String   @default("draft") // draft | published
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

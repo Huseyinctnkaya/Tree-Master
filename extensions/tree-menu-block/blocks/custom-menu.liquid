@@ -76,6 +76,16 @@
           nav.setAttribute("data-tree-master-id", menuId);
           nav.innerHTML = data.html;
 
+          // Execute custom JS
+          if (data.js) {
+            try {
+              var fn = new Function(data.js);
+              fn();
+            } catch (e) {
+              console.error("Tree Master: JS error:", e);
+            }
+          }
+
           console.log("Tree Master: menu injected successfully.");
         })
         .catch(function(err) {

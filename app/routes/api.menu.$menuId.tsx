@@ -32,6 +32,7 @@ export const loader = async ({ params }: LoaderFunctionArgs) => {
     JSON.stringify({
       html: menu.html,
       css: menu.css,
+      js: menu.js,
       name: menu.name,
     }),
     {

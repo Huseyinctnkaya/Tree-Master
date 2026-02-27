@@ -40,6 +40,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       name: menu.name,
       html: menu.html,
       css: menu.css,
+      js: menu.js,
       status: menu.status,
       updatedAt: menu.updatedAt.toISOString(),
     },
@@ -64,10 +65,11 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     const name = (formData.get("name") as string) || menu.name;
     const html = (formData.get("html") as string) ?? menu.html;
     const css = (formData.get("css") as string) ?? menu.css;
+    const js = (formData.get("js") as string) ?? menu.js;
 
     await prisma.customMenu.update({
       where: { id: menuId },
-      data: { name, html, css },
+      data: { name, html, css, js },
     });
 
     return { success: true, intent: "save" };
@@ -77,10 +79,11 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     const name = (formData.get("name") as string) || menu.name;
     const html = (formData.get("html") as string) ?? menu.html;
     const css = (formData.get("css") as string) ?? menu.css;
+    const js = (formData.get("js") as string) ?? menu.js;
 
     await prisma.customMenu.update({
       where: { id: menuId },
-      data: { name, html, css, status: "published" },
+      data: { name, html, css, js, status: "published" },
     });
 
     return { success: true, intent: "publish" };
@@ -108,7 +111,7 @@ function CodeEditor({
 }: {
   value: string;
   onChange: (val: string) => void;
-  language: "html" | "css";
+  language: "html" | "css" | "js";
   placeholder: string;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -148,8 +151,8 @@ function CodeEditor({
           top: 8,
           right: 8,
           padding: "2px 8px",
-          background: language === "html" ? "#E8F0FE" : "#F3E8FF",
-          color: language === "html" ? "#2C6ECB" : "#7C3AED",
+          background: language === "html" ? "#E8F0FE" : language === "css" ? "#F3E8FF" : "#FEF3C7",
+          color: language === "html" ? "#2C6ECB" : language === "css" ? "#7C3AED" : "#D97706",
           borderRadius: 4,
           fontSize: 10,
           fontWeight: 600,
@@ -190,7 +193,7 @@ function CodeEditor({
 
 // ---- Live Preview ----
 
-function LivePreview({ html, css }: { html: string; css: string }) {
+function LivePreview({ html, css, js }: { html: string; css: string; js: string }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
@@ -213,11 +216,12 @@ function LivePreview({ html, css }: { html: string; css: string }) {
       </head>
       <body>
         ${html}
+        ${js ? `<script>${js}<\/script>` : ""}
       </body>
       </html>
     `);
     doc.close();
-  }, [html, css]);
+  }, [html, css, js]);
 
   return (
     <iframe
@@ -230,7 +234,7 @@ function LivePreview({ html, css }: { html: string; css: string }) {
         borderRadius: 8,
         background: "white",
       }}
-      sandbox="allow-same-origin"
+      sandbox="allow-same-origin allow-scripts"
     />
   );
 }
@@ -247,14 +251,16 @@ export default function CustomMenuEditor() {
   const [name, setName] = useState(menu.name);
   const [html, setHtml] = useState(menu.html);
   const [css, setCss] = useState(menu.css);
+  const [js, setJs] = useState(menu.js);
   const [selectedTab, setSelectedTab] = useState(0);
 
   const [savedName, setSavedName] = useState(menu.name);
   const [savedHtml, setSavedHtml] = useState(menu.html);
   const [savedCss, setSavedCss] = useState(menu.css);
+  const [savedJs, setSavedJs] = useState(menu.js);
 
   const isSubmitting = navigation.state === "submitting";
-  const isDirty = name !== savedName || html !== savedHtml || css !== savedCss;
+  const isDirty = name !== savedName || html !== savedHtml || css !== savedCss || js !== savedJs;
   const prevActionRef = useRef<string>("");
 
   // Show/hide save bar
@@ -279,12 +285,14 @@ export default function CustomMenuEditor() {
         setSavedName(name);
         setSavedHtml(html);
         setSavedCss(css);
+        setSavedJs(js);
       }
       if (actionData.intent === "publish") {
         shopify.toast.show("Menu published!");
         setSavedName(name);
         setSavedHtml(html);
         setSavedCss(css);
+        setSavedJs(js);
       }
       if (actionData.intent === "unpublish") {
         shopify.toast.show("Menu unpublished.");
@@ -296,7 +304,8 @@ export default function CustomMenuEditor() {
     setName(savedName);
     setHtml(savedHtml);
     setCss(savedCss);
-  }, [savedName, savedHtml, savedCss]);
+    setJs(savedJs);
+  }, [savedName, savedHtml, savedCss, savedJs]);
 
   const handleSave = useCallback(
     (intent: string) => {
@@ -305,14 +314,16 @@ export default function CustomMenuEditor() {
       fd.append("name", name);
       fd.append("html", html);
       fd.append("css", css);
+      fd.append("js", js);
       submit(fd, { method: "post" });
     },
-    [name, html, css, submit],
+    [name, html, css, js, submit],
   );
 
   const tabs = [
     { id: "html", content: "HTML" },
     { id: "css", content: "CSS" },
+    { id: "js", content: "JS" },
     { id: "preview", content: "Preview" },
   ];
 
@@ -371,11 +382,19 @@ export default function CustomMenuEditor() {
                       />
                     )}
                     {selectedTab === 2 && (
+                      <CodeEditor
+                        value={js}
+                        onChange={setJs}
+                        language="js"
+                        placeholder={`// JavaScript runs after your HTML is injected into the page.\n// Example: open dropdowns on click instead of hover\n\ndocument.querySelectorAll('.mega-item').forEach(function(item) {\n  item.addEventListener('click', function() {\n    this.classList.toggle('open');\n  });\n});`}
+                      />
+                    )}
+                    {selectedTab === 3 && (
                       <BlockStack gap="200">
                         <Text as="p" variant="bodySm" tone="subdued">
                           Live preview of your custom menu:
                         </Text>
-                        <LivePreview html={html} css={css} />
+                        <LivePreview html={html} css={css} js={js} />
                       </BlockStack>
                     )}
                   </Box>
@@ -485,8 +504,9 @@ export default function CustomMenuEditor() {
                 <Button
                   fullWidth
                   onClick={() => {
-                    setHtml(`<nav class="nav-mega">\n  <ul class="mega-list">\n    <li class="mega-item">\n      <a href="/collections/all" class="mega-link">Shop</a>\n      <div class="mega-dropdown">\n        <div class="mega-col">\n          <h4>Categories</h4>\n          <ul>\n            <li><a href="/collections/shirts">Shirts</a></li>\n            <li><a href="/collections/pants">Pants</a></li>\n            <li><a href="/collections/shoes">Shoes</a></li>\n          </ul>\n        </div>\n        <div class="mega-col">\n          <h4>Featured</h4>\n          <ul>\n            <li><a href="/collections/new">New Arrivals</a></li>\n            <li><a href="/collections/sale">Sale</a></li>\n            <li><a href="/collections/best">Best Sellers</a></li>\n          </ul>\n        </div>\n      </div>\n    </li>\n    <li class="mega-item"><a href="/pages/about" class="mega-link">About</a></li>\n    <li class="mega-item"><a href="/pages/contact" class="mega-link">Contact</a></li>\n  </ul>\n</nav>`);
-                    setCss(`.nav-mega { position: relative; }\n\n.mega-list {\n  list-style: none;\n  display: flex;\n  gap: 32px;\n  padding: 0;\n  margin: 0;\n}\n\n.mega-link {\n  text-decoration: none;\n  color: #333;\n  font-size: 15px;\n  font-weight: 600;\n  padding: 12px 0;\n  display: block;\n}\n\n.mega-item { position: relative; }\n\n.mega-dropdown {\n  display: none;\n  position: absolute;\n  top: 100%;\n  left: -20px;\n  background: #fff;\n  border: 1px solid #e5e5e5;\n  border-radius: 12px;\n  padding: 24px;\n  min-width: 400px;\n  box-shadow: 0 8px 24px rgba(0,0,0,0.08);\n  gap: 32px;\n}\n\n.mega-item:hover .mega-dropdown {\n  display: flex;\n}\n\n.mega-col h4 {\n  font-size: 12px;\n  text-transform: uppercase;\n  letter-spacing: 0.5px;\n  color: #888;\n  margin-bottom: 12px;\n}\n\n.mega-col ul {\n  list-style: none;\n  padding: 0;\n}\n\n.mega-col li { margin-bottom: 8px; }\n\n.mega-col a {\n  text-decoration: none;\n  color: #333;\n  font-size: 14px;\n}\n\n.mega-col a:hover { color: #000; }`);
+                    setHtml(`<nav class="nm">\n  <ul class="nm-list">\n    <li class="nm-item nm-item--drop">\n      <a href="/collections/all" class="nm-link">\n        Shop\n        <svg class="nm-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>\n      </a>\n      <div class="nm-drop">\n        <div class="nm-drop-inner">\n          <div class="nm-col">\n            <p class="nm-col-title">Categories</p>\n            <ul>\n              <li><a href="/collections/shirts">Shirts</a></li>\n              <li><a href="/collections/pants">Pants</a></li>\n              <li><a href="/collections/shoes">Shoes</a></li>\n            </ul>\n          </div>\n          <div class="nm-col">\n            <p class="nm-col-title">Featured</p>\n            <ul>\n              <li><a href="/collections/new">New Arrivals</a></li>\n              <li><a href="/collections/sale">Sale</a></li>\n              <li><a href="/collections/best">Best Sellers</a></li>\n            </ul>\n          </div>\n        </div>\n      </div>\n    </li>\n    <li class="nm-item"><a href="/pages/about" class="nm-link">About</a></li>\n    <li class="nm-item"><a href="/pages/contact" class="nm-link">Contact</a></li>\n  </ul>\n</nav>`);
+                    setCss(`.nm { position: relative; }\n\n.nm-list {\n  list-style: none;\n  display: flex;\n  align-items: center;\n  gap: 2px;\n  padding: 0;\n  margin: 0;\n}\n\n.nm-item { position: relative; }\n\n.nm-link {\n  display: inline-flex;\n  align-items: center;\n  gap: 5px;\n  text-decoration: none;\n  color: #fff;\n  font-size: 14px;\n  font-weight: 500;\n  padding: 7px 12px;\n  border-radius: 6px;\n  transition: background 0.15s;\n  white-space: nowrap;\n  letter-spacing: 0.01em;\n}\n\n.nm-link:hover {\n  background: rgba(255,255,255,0.12);\n}\n\n.nm-arrow {\n  opacity: 0.6;\n  transition: transform 0.2s ease;\n  flex-shrink: 0;\n}\n\n.nm-item--drop:hover .nm-arrow {\n  transform: rotate(180deg);\n}\n\n.nm-drop {\n  position: absolute;\n  top: calc(100% + 10px);\n  left: 0;\n  opacity: 0;\n  visibility: hidden;\n  transform: translateY(-6px);\n  transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;\n  pointer-events: none;\n  z-index: 200;\n}\n\n.nm-item--drop:hover .nm-drop {\n  opacity: 1;\n  visibility: visible;\n  transform: translateY(0);\n  pointer-events: auto;\n}\n\n.nm-drop-inner {\n  display: flex;\n  gap: 28px;\n  background: #fff;\n  border-radius: 14px;\n  padding: 22px 26px;\n  min-width: 300px;\n  box-shadow:\n    0 0 0 1px rgba(0,0,0,0.06),\n    0 4px 6px -2px rgba(0,0,0,0.05),\n    0 16px 32px -4px rgba(0,0,0,0.12);\n}\n\n.nm-col-title {\n  font-size: 11px;\n  font-weight: 600;\n  text-transform: uppercase;\n  letter-spacing: 0.07em;\n  color: #aaa;\n  margin: 0 0 10px 0;\n}\n\n.nm-col ul {\n  list-style: none;\n  padding: 0;\n  margin: 0;\n}\n\n.nm-col li { margin-bottom: 1px; }\n\n.nm-col a {\n  display: block;\n  text-decoration: none;\n  color: #1a1a1a;\n  font-size: 14px;\n  padding: 6px 8px;\n  margin: 0 -8px;\n  border-radius: 7px;\n  transition: background 0.12s, color 0.12s;\n}\n\n.nm-col a:hover {\n  background: #f4f4f4;\n  color: #000;\n}`);
+                    setJs(`// Mega menu is CSS-only (hover). Add JS here if you need click/touch support.\n// Example: close dropdown when clicking outside\ndocument.addEventListener('click', function(e) {\n  if (!e.target.closest('.nm-item--drop')) {\n    document.querySelectorAll('.nm-drop').forEach(function(d) {\n      d.style.opacity = '';\n    });\n  }\n});`);
                     setSelectedTab(0);
                   }}
                 >
