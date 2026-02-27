@@ -442,10 +442,7 @@ export default function CustomMenuEditor() {
                     <strong>4.</strong> Add a <strong>Tree Master Menu</strong> block
                   </Text>
                   <Text as="p" variant="bodySm">
-                    <strong>5.</strong> Set mode to <strong>Custom Code</strong>
-                  </Text>
-                  <Text as="p" variant="bodySm">
-                    <strong>6.</strong> Enter this Menu ID:
+                    <strong>5.</strong> Enter this Menu ID:
                   </Text>
                 </BlockStack>
                 <div
