@@ -4,24 +4,56 @@
 {% endcomment %}
 
 {% assign menu_id = block.settings.custom_menu_id %}
+{% assign nav_selector = block.settings.nav_selector %}
+{% if nav_selector == blank %}{% assign nav_selector = "header nav" %}{% endif %}
 
 {% if menu_id != blank %}
 <script>
   (function() {
-    var menuId = "{{ menu_id }}";
-    var navSelector = {{ block.settings.nav_selector | default: "header nav" | json }};
+    var menuId = {{ menu_id | json }};
+    var customSelector = {{ nav_selector | json }};
+
+    // Fallback selectors for common Shopify themes
+    var fallbackSelectors = [
+      customSelector,
+      "header nav",
+      ".header__inline-menu",
+      ".site-nav",
+      "[class*='header__navigation']",
+      "[class*='header-nav']",
+      "header [role='navigation']"
+    ];
+
+    function findNav() {
+      for (var i = 0; i < fallbackSelectors.length; i++) {
+        var el = document.querySelector(fallbackSelectors[i]);
+        if (el) {
+          console.log("Tree Master: nav found with selector \"" + fallbackSelectors[i] + "\"");
+          return el;
+        }
+      }
+      return null;
+    }
 
     function injectMenu() {
       fetch("/apps/tree-master/menu/" + menuId)
-        .then(function(res) { return res.json(); })
+        .then(function(res) {
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          return res.json();
+        })
         .then(function(data) {
-          var nav = document.querySelector(navSelector);
-          if (!nav) {
-            console.warn("Tree Master: navigation element not found for selector \"" + navSelector + "\"");
+          if (!data.html) {
+            console.warn("Tree Master: menu has no HTML. Is it published?");
             return;
           }
 
-          // Inject CSS into <head>
+          var nav = findNav();
+          if (!nav) {
+            console.warn("Tree Master: could not find header navigation. Try setting a custom CSS selector in App Embeds settings.");
+            return;
+          }
+
+          // Inject CSS
           if (data.css) {
             var style = document.createElement("style");
             style.setAttribute("data-tree-master", menuId);
@@ -36,11 +68,13 @@
 
           var wrapper = document.createElement("div");
           wrapper.id = "tree-master-nav-" + menuId;
-          wrapper.innerHTML = data.html || "";
+          wrapper.innerHTML = data.html;
           nav.parentNode.insertBefore(wrapper, nav.nextSibling);
+
+          console.log("Tree Master: menu injected successfully.");
         })
         .catch(function(err) {
-          console.error("Tree Master: Failed to load menu", err);
+          console.error("Tree Master: Failed to load menu.", err);
         });
     }
 
@@ -67,9 +101,9 @@
     {
       "type": "text",
       "id": "nav_selector",
-      "label": "Navigation CSS Selector",
-      "default": "header nav",
-      "info": "CSS selector pointing to your theme's header navigation. 'header nav' works for most themes (Dawn, Refresh, Sense, etc.)."
+      "label": "Navigation CSS Selector (optional)",
+      "placeholder": "header nav",
+      "info": "Leave empty to auto-detect. If the menu doesn't appear, open browser DevTools, find your theme's nav element, and enter its CSS selector here."
     }
   ]
 }
