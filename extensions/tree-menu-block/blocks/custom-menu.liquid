@@ -13,23 +13,33 @@
     var menuId = {{ menu_id | json }};
     var customSelector = {{ nav_selector | json }};
 
-    // Fallback selectors for common Shopify themes
+    // Fallback selectors — more specific first (Dawn, Refresh, Sense, etc.)
     var fallbackSelectors = [
       customSelector,
-      "header nav",
       ".header__inline-menu",
+      "header .header__navigation",
+      ".site-navigation",
       ".site-nav",
-      "[class*='header__navigation']",
-      "[class*='header-nav']",
+      "header nav",
       "header [role='navigation']"
     ];
 
+    function isVisible(el) {
+      if (!el) return false;
+      var style = window.getComputedStyle(el);
+      if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+      var rect = el.getBoundingClientRect();
+      return rect.width > 0 || rect.height > 0;
+    }
+
     function findNav() {
       for (var i = 0; i < fallbackSelectors.length; i++) {
-        var el = document.querySelector(fallbackSelectors[i]);
-        if (el) {
-          console.log("Tree Master: nav found with selector \"" + fallbackSelectors[i] + "\"");
-          return el;
+        var candidates = document.querySelectorAll(fallbackSelectors[i]);
+        for (var j = 0; j < candidates.length; j++) {
+          if (isVisible(candidates[j])) {
+            console.log("Tree Master: nav found with selector \"" + fallbackSelectors[i] + "\"");
+            return candidates[j];
+          }
         }
       }
       return null;
