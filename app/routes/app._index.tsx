@@ -106,6 +106,36 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   ]);
   const deployedCount = menuMetaCount + publishedCustomMenuCount;
 
+  // Check if app embed is enabled in the active theme
+  let embedEnabled = false;
+  try {
+    const themesRes = await admin.graphql(
+      `query { themes(first: 1, roles: [MAIN]) { edges { node { id } } } }`
+    );
+    const themesData = await themesRes.json();
+    const themeGid = themesData.data?.themes?.edges?.[0]?.node?.id;
+    if (themeGid) {
+      const themeNumericId = themeGid.split("/").pop();
+      const assetRes = await fetch(
+        `https://${session.shop}/admin/api/2026-04/themes/${themeNumericId}/assets.json?asset[key]=config/settings_data.json`,
+        { headers: { "X-Shopify-Access-Token": session.accessToken } }
+      );
+      if (assetRes.ok) {
+        const assetData = await assetRes.json();
+        const settingsJson = JSON.parse(assetData.asset?.value ?? "{}");
+        const blocks = settingsJson?.current?.blocks ?? {};
+        embedEnabled = Object.values(blocks).some(
+          (block: any) =>
+            typeof block.type === "string" &&
+            block.type.includes("tree-master") &&
+            !block.disabled
+        );
+      }
+    }
+  } catch (_) {
+    // ignore, embedEnabled stays false
+  }
+
   return {
     totalMenus,
     totalItems,
@@ -115,17 +145,18 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     emptyTitleCount,
     hasMenus: totalMenus > 0,
     hasDeployed: deployedCount > 0,
+    embedEnabled,
   };
 };
 
-function buildSteps(hasMenus: boolean, hasDeployed: boolean) {
+function buildSteps(hasMenus: boolean, hasDeployed: boolean, embedEnabled: boolean) {
   return [
     {
       id: "1",
       title: "Enable the app",
-      description: null,
-      done: true,
-      action: null,
+      description: "Enable the Tree Master embed block in your theme to activate the app.",
+      done: embedEnabled,
+      action: { label: "Open Theme Editor", url: "shopify://admin/themes/current/editor" },
     },
     {
       id: "2",
@@ -196,9 +227,10 @@ export default function Dashboard() {
     emptyTitleCount,
     hasMenus,
     hasDeployed,
+    embedEnabled,
   } = useLoaderData<typeof loader>();
 
-  const STEPS = buildSteps(hasMenus, hasDeployed);
+  const STEPS = buildSteps(hasMenus, hasDeployed, embedEnabled);
   const completedCount = STEPS.filter((s) => s.done).length;
 
   const healthTone = healthScore >= 80 ? "success" : "critical" as const;
