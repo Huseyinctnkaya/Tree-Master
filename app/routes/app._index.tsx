@@ -120,12 +120,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       const themeNumericId = mainTheme.id.split("/").pop();
       const assetRes = await fetch(
         `https://${session.shop}/admin/api/2026-04/themes/${themeNumericId}/assets.json?asset[key]=config/settings_data.json`,
-        { headers: { "X-Shopify-Access-Token": session.accessToken } }
+        { headers: { "X-Shopify-Access-Token": session.accessToken ?? "" } }
       );
       if (assetRes.ok) {
         const assetData = await assetRes.json();
         const settingsJson = JSON.parse(assetData.asset?.value ?? "{}");
         const blocks = settingsJson?.current?.blocks ?? {};
+        console.log("[TreeMaster] theme blocks:", JSON.stringify(Object.values(blocks).map((b: any) => ({ type: b.type, disabled: b.disabled }))));
         embedEnabled = Object.values(blocks).some(
           (block: any) =>
             typeof block.type === "string" &&
