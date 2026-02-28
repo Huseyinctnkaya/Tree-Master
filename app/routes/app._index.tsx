@@ -590,7 +590,7 @@ export default function Dashboard() {
                       padding: 16,
                       cursor: "pointer",
                     }}
-                    onClick={() => window.open("mailto:support@treemaster.app")}
+                    onClick={() => window.open("https://landing.treemaster.app/", "_blank")}
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{ display: "flex", flexShrink: 0 }}>
@@ -613,7 +613,7 @@ export default function Dashboard() {
                       padding: 16,
                       cursor: "pointer",
                     }}
-                    onClick={() => window.open("https://treemaster.app/docs", "_blank")}
+                    onClick={() => window.open("https://landing.treemaster.app/", "_blank")}
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{ display: "flex", flexShrink: 0 }}>
