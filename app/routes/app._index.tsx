@@ -73,6 +73,7 @@ const THEME_BLOCK_SIGNATURES = [
   "tree-master",
   "tree-menu",
   "tree-menu-block",
+  "custom-menu",
   "/blocks/custom-menu/",
 ];
 
@@ -147,8 +148,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   ]);
   const deployedCount = menuMetaCount + publishedCustomMenuCount;
 
-  // Check if app embed is enabled in the active theme
-  let embedEnabled = false;
+  // Check if app embed / app block is enabled in any theme.
+  // If theme settings cannot be read (missing read_themes scope), keep status unknown.
+  let embedStatus: "enabled" | "disabled" | "unknown" = "unknown";
   try {
     const themesRes = await admin.graphql(
       `query { themes(first: 20) { edges { node { id role } } } }`
@@ -162,6 +164,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       return 0;
     });
 
+    let checkedThemeSettings = false;
     for (const theme of prioritizedThemes) {
       const themeNumericId = String(theme.id).split("/").pop();
       if (!themeNumericId) continue;
@@ -170,21 +173,28 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         { headers: { "X-Shopify-Access-Token": session.accessToken ?? "" } }
       );
       if (!assetRes.ok) continue;
+      checkedThemeSettings = true;
 
       const assetData = await assetRes.json();
       const settingsJson = JSON.parse(assetData.asset?.value ?? "{}");
-      const activeBlocks = collectThemeBlocks(settingsJson?.current ?? {}).filter(
+      const activeBlocks = collectThemeBlocks(settingsJson).filter(
         (block) => !block.disabled,
       );
 
       if (activeBlocks.some((block) => isTreeMasterThemeBlock(block.type))) {
-        embedEnabled = true;
+        embedStatus = "enabled";
         break;
       }
     }
+
+    if (embedStatus !== "enabled" && checkedThemeSettings) {
+      embedStatus = "disabled";
+    }
   } catch (_) {
-    // ignore, embedEnabled stays false
+    // ignore, embedStatus stays unknown
   }
+
+  const embedEnabled = embedStatus !== "disabled";
 
   return {
     totalMenus,
