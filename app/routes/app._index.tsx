@@ -69,6 +69,47 @@ function countEmptyTitleItems(items: any[]): number {
   return count;
 }
 
+const THEME_BLOCK_SIGNATURES = [
+  "tree-master",
+  "tree-menu",
+  "tree-menu-block",
+  "/blocks/custom-menu/",
+];
+
+function collectThemeBlocks(node: any, inheritedDisabled = false): { type: string; disabled: boolean }[] {
+  if (!node || typeof node !== "object") return [];
+
+  const results: { type: string; disabled: boolean }[] = [];
+
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      results.push(...collectThemeBlocks(item, inheritedDisabled));
+    }
+    return results;
+  }
+
+  const nodeDisabled = inheritedDisabled || Boolean((node as any).disabled);
+
+  if (typeof (node as any).type === "string") {
+    results.push({
+      type: (node as any).type,
+      disabled: nodeDisabled,
+    });
+  }
+
+  for (const value of Object.values(node)) {
+    if (value && typeof value === "object") {
+      results.push(...collectThemeBlocks(value, nodeDisabled));
+    }
+  }
+
+  return results;
+}
+
+function isTreeMasterThemeBlock(blockType: string): boolean {
+  return THEME_BLOCK_SIGNATURES.some((sig) => blockType.includes(sig));
+}
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   const response = await admin.graphql(MENUS_QUERY);
@@ -113,26 +154,32 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       `query { themes(first: 20) { edges { node { id role } } } }`
     );
     const themesData = await themesRes.json();
-    const mainTheme = themesData.data?.themes?.edges?.find(
-      ({ node }: any) => node.role === "MAIN"
-    )?.node;
-    if (mainTheme) {
-      const themeNumericId = mainTheme.id.split("/").pop();
+    const themeNodes =
+      themesData.data?.themes?.edges?.map(({ node }: any) => node) ?? [];
+    const prioritizedThemes = [...themeNodes].sort((a: any, b: any) => {
+      if (a.role === "MAIN" && b.role !== "MAIN") return -1;
+      if (b.role === "MAIN" && a.role !== "MAIN") return 1;
+      return 0;
+    });
+
+    for (const theme of prioritizedThemes) {
+      const themeNumericId = String(theme.id).split("/").pop();
+      if (!themeNumericId) continue;
       const assetRes = await fetch(
         `https://${session.shop}/admin/api/2026-04/themes/${themeNumericId}/assets.json?asset[key]=config/settings_data.json`,
         { headers: { "X-Shopify-Access-Token": session.accessToken ?? "" } }
       );
-      if (assetRes.ok) {
-        const assetData = await assetRes.json();
-        const settingsJson = JSON.parse(assetData.asset?.value ?? "{}");
-        const blocks = settingsJson?.current?.blocks ?? {};
-        console.log("[TreeMaster] theme blocks:", JSON.stringify(Object.values(blocks).map((b: any) => ({ type: b.type, disabled: b.disabled }))));
-        embedEnabled = Object.values(blocks).some(
-          (block: any) =>
-            typeof block.type === "string" &&
-            (block.type.includes("tree-master") || block.type.includes("tree-menu")) &&
-            !block.disabled
-        );
+      if (!assetRes.ok) continue;
+
+      const assetData = await assetRes.json();
+      const settingsJson = JSON.parse(assetData.asset?.value ?? "{}");
+      const activeBlocks = collectThemeBlocks(settingsJson?.current ?? {}).filter(
+        (block) => !block.disabled,
+      );
+
+      if (activeBlocks.some((block) => isTreeMasterThemeBlock(block.type))) {
+        embedEnabled = true;
+        break;
       }
     }
   } catch (_) {
