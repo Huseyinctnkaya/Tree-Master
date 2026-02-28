@@ -100,9 +100,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   if (missingUrlCount > 0) healthScore -= missingUrlCount * 5;
   healthScore = Math.max(0, Math.min(100, healthScore));
 
-  const snapshotCount = await prisma.menuSnapshot.count({
-    where: { shop: session.shop },
-  });
+  const [menuMetaCount, publishedCustomMenuCount] = await Promise.all([
+    prisma.menuMeta.count({ where: { shop: session.shop } }),
+    prisma.customMenu.count({ where: { shop: session.shop, status: "published" } }),
+  ]);
+  const deployedCount = menuMetaCount + publishedCustomMenuCount;
 
   return {
     totalMenus,
@@ -112,7 +114,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     missingUrlCount,
     emptyTitleCount,
     hasMenus: totalMenus > 0,
-    hasDeployed: snapshotCount > 0,
+    hasDeployed: deployedCount > 0,
   };
 };
 
