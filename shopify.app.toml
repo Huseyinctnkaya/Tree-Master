@@ -2,7 +2,7 @@
 
 client_id = "c8867de6e4b3b9ef48e23dedbac5bd03"
 name = "Tree Master"
-application_url = "https://drinking-garden-shannon-congratulations.trycloudflare.com"
+application_url = "https://treemaster.app"
 embedded = true
 
 [build]
@@ -16,9 +16,9 @@ api_version = "2026-04"
 scopes = "read_online_store_navigation,write_online_store_navigation,read_products,read_content"
 
 [app_proxy]
-url = "https://drinking-garden-shannon-congratulations.trycloudflare.com/api"
+url = "https://treemaster.app/api"
 subpath = "tree-master"
 prefix = "apps"
 
 [auth]
-redirect_urls = [ "https://drinking-garden-shannon-congratulations.trycloudflare.com/auth/callback" ]
+redirect_urls = [ "https://treemaster.app/auth/callback" ]
