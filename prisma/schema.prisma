@@ -46,14 +46,17 @@ model MenuSnapshot {
 
 // Extra metadata for menu items (handle, SEO, meta description)
 model MenuMeta {
-  id        String   @id @default(cuid())
-  shop      String
-  menuGid   String
-  data      String   // JSON: { [itemId]: { handle, seoKeywords, metaDescription } }
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  shop       String
+  menuGid    String
+  menuHandle String   @default("")
+  data       String   // JSON: { [itemId]: { handle, seoKeywords, metaDescription, badge } }
+  badgeMap   String   @default("{}") // JSON: { [itemTitle]: badgeText } for theme injection
+  updatedAt  DateTime @updatedAt
 
   @@unique([shop, menuGid])
   @@index([shop, menuGid])
+  @@index([shop, menuHandle])
 }
 
 // Custom code menus (HTML/CSS created in app)

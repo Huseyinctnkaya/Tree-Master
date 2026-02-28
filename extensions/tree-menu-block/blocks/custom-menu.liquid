@@ -1,17 +1,52 @@
 {% comment %}
-  Tree Master - Custom Menu App Embed
-  Automatically finds the header navigation and replaces it with a custom menu.
+  Tree Master - App Embed
+  • Custom Menu: replaces header nav with a custom-coded menu
+  • Native Badges: injects badges into the existing Shopify nav
 {% endcomment %}
 
 {% assign menu_id = block.settings.custom_menu_id %}
 {% assign nav_selector = block.settings.nav_selector %}
+{% assign native_menu_handle = block.settings.native_menu_handle %}
+{% assign badge_color = block.settings.badge_color %}
+{% assign badge_text_color = block.settings.badge_text_color %}
 {% if nav_selector == blank %}{% assign nav_selector = "header nav" %}{% endif %}
 
-{% if menu_id != blank %}
+{% if menu_id != blank or native_menu_handle != blank %}
+<style>
+  .tm-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 9px;
+    font-weight: 800;
+    line-height: 1;
+    padding: 3px 7px;
+    border-radius: 20px;
+    margin-left: 6px;
+    vertical-align: middle;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    background-color: {{ badge_color | default: '#FF4438' }};
+    color: {{ badge_text_color | default: '#ffffff' }};
+    white-space: nowrap;
+    pointer-events: none;
+    position: relative;
+    top: -1px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+    animation: tm-badge-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  @keyframes tm-badge-pop {
+    from { transform: scale(0.6); opacity: 0; }
+    to   { transform: scale(1);   opacity: 1; }
+  }
+</style>
 <script>
   (function() {
     var menuId = {{ menu_id | json }};
     var customSelector = {{ nav_selector | json }};
+    var nativeMenuHandle = {{ native_menu_handle | json }};
+    var shop = {{ shop.permanent_domain | json }};
 
     // Fallback selectors — more specific first (Dawn, Refresh, Sense, etc.)
     var fallbackSelectors = [
@@ -45,6 +80,37 @@
       return null;
     }
 
+    // ---- Native badge injection ----
+    function getLinkText(link) {
+      // Clone link, remove any existing badges, then get text content
+      var clone = link.cloneNode(true);
+      clone.querySelectorAll('.tm-badge').forEach(function(b) { b.remove(); });
+      return clone.textContent.trim();
+    }
+
+    function injectBadges(badges) {
+      if (!badges || Object.keys(badges).length === 0) return;
+      var links = document.querySelectorAll('header a, nav a, [role="navigation"] a');
+      links.forEach(function(link) {
+        var text = getLinkText(link);
+        if (text && badges[text] && !link.querySelector('.tm-badge')) {
+          var span = document.createElement('span');
+          span.className = 'tm-badge';
+          span.textContent = badges[text];
+          link.appendChild(span);
+        }
+      });
+    }
+
+    function loadNativeBadges() {
+      if (!nativeMenuHandle) return;
+      fetch('/apps/tree-master/native-badges/' + nativeMenuHandle + '?shop=' + shop)
+        .then(function(res) { return res.ok ? res.json() : null; })
+        .then(function(data) { if (data && data.badges) injectBadges(data.badges); })
+        .catch(function() {});
+    }
+
+    // ---- Custom menu injection ----
     function injectMenu() {
       fetch("/apps/tree-master/menu/" + menuId)
         .then(function(res) {
@@ -93,10 +159,15 @@
         });
     }
 
+    function init() {
+      if (menuId) injectMenu();
+      if (nativeMenuHandle) loadNativeBadges();
+    }
+
     if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", injectMenu);
+      document.addEventListener("DOMContentLoaded", init);
     } else {
-      injectMenu();
+      init();
     }
   })();
 </script>
@@ -108,17 +179,43 @@
   "target": "body",
   "settings": [
     {
+      "type": "header",
+      "content": "Custom Code Menu"
+    },
+    {
       "type": "text",
       "id": "custom_menu_id",
       "label": "Custom Menu ID",
-      "info": "Enter the menu ID from the Tree Master app. Find it under Custom Menus."
+      "info": "Enter the menu ID from the Tree Master app (Custom Menus section). Leave empty if not using a custom menu."
     },
     {
       "type": "text",
       "id": "nav_selector",
       "label": "Navigation CSS Selector (optional)",
       "placeholder": "header nav",
-      "info": "Leave empty to auto-detect. If the menu doesn't appear, open browser DevTools, find your theme's nav element, and enter its CSS selector here."
+      "info": "Leave empty to auto-detect. If the menu doesn't appear, open DevTools, find your nav element, and enter its selector here."
+    },
+    {
+      "type": "header",
+      "content": "Native Menu Badges"
+    },
+    {
+      "type": "text",
+      "id": "native_menu_handle",
+      "label": "Menu Handle",
+      "info": "Enter your Shopify menu handle to show badges (e.g. 'main-menu'). Add badges to items in Tree Master, then Deploy."
+    },
+    {
+      "type": "color",
+      "id": "badge_color",
+      "label": "Badge Color",
+      "default": "#FF4438"
+    },
+    {
+      "type": "color",
+      "id": "badge_text_color",
+      "label": "Badge Text Color",
+      "default": "#ffffff"
     }
   ]
 }

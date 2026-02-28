@@ -563,6 +563,22 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       return { success: false, intent: "deploy", errors: userErrors };
     }
 
+    // Build title→badge map for theme injection
+    function extractBadgeMap(its: MenuItem[]): Record<string, string> {
+      const map: Record<string, string> = {};
+      for (const it of its) {
+        if (it.badge && it.title) map[it.title.trim()] = it.badge;
+        if (it.items?.length) Object.assign(map, extractBadgeMap(it.items));
+      }
+      return map;
+    }
+    const badgeMap = extractBadgeMap(items);
+    await prisma.menuMeta.upsert({
+      where: { shop_menuGid: { shop: session.shop, menuGid } },
+      create: { shop: session.shop, menuGid, menuHandle, data: "{}", badgeMap: JSON.stringify(badgeMap) },
+      update: { menuHandle, badgeMap: JSON.stringify(badgeMap) },
+    });
+
     // Fire deploy webhooks (fire-and-forget, don't block deploy response)
     const webhooks = await prisma.webhookConfig.findMany({
       where: { shop: session.shop },
