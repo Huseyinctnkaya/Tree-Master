@@ -110,12 +110,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   let embedEnabled = false;
   try {
     const themesRes = await admin.graphql(
-      `query { themes(first: 1, roles: [MAIN]) { edges { node { id } } } }`
+      `query { themes(first: 20) { edges { node { id role } } } }`
     );
     const themesData = await themesRes.json();
-    const themeGid = themesData.data?.themes?.edges?.[0]?.node?.id;
-    if (themeGid) {
-      const themeNumericId = themeGid.split("/").pop();
+    const mainTheme = themesData.data?.themes?.edges?.find(
+      ({ node }: any) => node.role === "MAIN"
+    )?.node;
+    if (mainTheme) {
+      const themeNumericId = mainTheme.id.split("/").pop();
       const assetRes = await fetch(
         `https://${session.shop}/admin/api/2026-04/themes/${themeNumericId}/assets.json?asset[key]=config/settings_data.json`,
         { headers: { "X-Shopify-Access-Token": session.accessToken } }
@@ -127,7 +129,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         embedEnabled = Object.values(blocks).some(
           (block: any) =>
             typeof block.type === "string" &&
-            block.type.includes("tree-master") &&
+            (block.type.includes("tree-master") || block.type.includes("tree-menu")) &&
             !block.disabled
         );
       }
