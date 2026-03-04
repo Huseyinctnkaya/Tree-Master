@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "c8867de6e4b3b9ef48e23dedbac5bd03"
-name = "Tree Master - Bulk Menu Manager"
+name = "Tree Master - Bulk Menus"
 application_url = "https://treemaster.app"
 embedded = true
 
