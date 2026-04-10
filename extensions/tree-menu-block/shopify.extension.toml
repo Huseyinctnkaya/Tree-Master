@@ -8,8 +8,4 @@ handle = "tree-menu-block"
 
   [[extensions.targeting]]
   module = "./blocks/custom-menu.liquid"
-  target = "section"
-
-  [[extensions.targeting]]
-  module = "./blocks/custom-menu.liquid"
-  target = "block"
+  target = "body"
