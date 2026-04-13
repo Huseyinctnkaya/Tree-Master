@@ -1,7 +1,7 @@
 {% comment %}
   Tree Master - App Embed
   • Custom Menu: replaces header nav with a custom-coded menu
-  • Native Badges: injects badges into the existing Shopify nav
+  • Native Badges: replaces header nav with a Shopify menu + optional badges
 {% endcomment %}
 
 {% assign menu_id = block.settings.custom_menu_id %}
@@ -10,7 +10,6 @@
 {% assign badge_color = block.settings.badge_color %}
 {% assign badge_text_color = block.settings.badge_text_color %}
 {% if nav_selector == blank %}{% assign nav_selector = "header nav" %}{% endif %}
-{% assign native_linklist = linklists[native_menu_handle] %}
 
 {% if menu_id != blank or native_menu_handle != blank %}
 <style>
@@ -41,14 +40,35 @@
     from { transform: scale(0.6); opacity: 0; }
     to   { transform: scale(1);   opacity: 1; }
   }
+  #tm-native-menu-data { display: none !important; }
 </style>
+
+{% comment %} Hidden menu data rendered server-side from linklists {% endcomment %}
+{% if native_menu_handle != blank %}
+  {% assign native_linklist = linklists[native_menu_handle] %}
+  {% if native_linklist.links.size > 0 %}
+  <ul id="tm-native-menu-data" aria-hidden="true">
+    {% for link in native_linklist.links %}
+    <li data-title="{{ link.title | escape }}" data-url="{{ link.url | escape }}">
+      {% if link.links.size > 0 %}
+      <ul>
+        {% for sub in link.links %}
+        <li data-title="{{ sub.title | escape }}" data-url="{{ sub.url | escape }}"></li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+{% endif %}
+
 <script>
   (function() {
     var menuId = {{ menu_id | json }};
     var customSelector = {{ nav_selector | json }};
     var nativeMenuHandle = {{ native_menu_handle | json }};
     var shop = {{ shop.permanent_domain | json }};
-    var nativeMenuItems = {{ native_linklist.links | json }};
 
     // Fallback selectors — more specific first (Dawn, Refresh, Sense, etc.)
     var fallbackSelectors = [
@@ -82,15 +102,31 @@
       return null;
     }
 
-    // ---- Native menu + badge injection ----
-    function escapeHtml(str) {
-      return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+    // Read menu items from the hidden server-rendered <ul>
+    function getMenuItemsFromDOM() {
+      var container = document.getElementById('tm-native-menu-data');
+      if (!container) return null;
+      var topLis = container.querySelectorAll(':scope > li');
+      if (!topLis.length) return null;
+      var items = [];
+      topLis.forEach(function(li) {
+        var item = {
+          title: li.getAttribute('data-title') || '',
+          url: li.getAttribute('data-url') || '#',
+          links: []
+        };
+        li.querySelectorAll(':scope > ul > li').forEach(function(subLi) {
+          item.links.push({
+            title: subLi.getAttribute('data-title') || '',
+            url: subLi.getAttribute('data-url') || '#'
+          });
+        });
+        items.push(item);
+      });
+      return items.length ? items : null;
     }
 
+    // ---- Badge helpers ----
     function makeBadgeSpan(text) {
       var span = document.createElement('span');
       span.className = 'tm-badge';
@@ -104,7 +140,6 @@
       return clone.textContent.trim();
     }
 
-    // Inject badges onto already-rendered nav links (fallback when no items returned)
     function injectBadgesOnly(badges) {
       if (!badges || Object.keys(badges).length === 0) return;
       var links = document.querySelectorAll('header a, nav a, [role="navigation"] a');
@@ -116,9 +151,9 @@
       });
     }
 
-    // Replace nav with Shopify menu items and inject badges
+    // ---- Native menu injection ----
     function buildAndInjectNativeMenu(items, badges) {
-      if (!items || items.length === 0) return false;
+      if (!items || !items.length) return false;
 
       var nav = findNav();
       if (!nav) {
@@ -126,7 +161,7 @@
         return false;
       }
 
-      // Detect nav structure to preserve theme styling
+      // Copy existing nav structure classes to preserve theme styling
       var existingLink = nav.querySelector('a');
       var linkClass = existingLink ? existingLink.className : '';
       var existingUl = nav.querySelector('ul');
@@ -135,33 +170,34 @@
       var liClass = existingLi ? existingLi.className : '';
       var useList = !!existingLi;
 
-      var html = useList ? ('<ul' + (listClass ? ' class="' + escapeHtml(listClass) + '"' : '') + '>') : '';
+      var html = useList ? ('<ul' + (listClass ? ' class="' + listClass + '"' : '') + '>') : '';
 
       items.forEach(function(item) {
-        var badge = badges[item.title ? item.title.trim() : ''];
-        var badgeHtml = badge ? '<span class="tm-badge">' + escapeHtml(badge) + '</span>' : '';
-        var linkHtml = '<a href="' + escapeHtml(item.url) + '"'
-          + (linkClass ? ' class="' + escapeHtml(linkClass) + '"' : '') + '>'
-          + escapeHtml(item.title) + badgeHtml + '</a>';
+        var badge = badges[item.title.trim()];
+        var linkEl = document.createElement('a');
+        linkEl.href = item.url;
+        if (linkClass) linkEl.className = linkClass;
+        linkEl.textContent = item.title;
+        if (badge) linkEl.appendChild(makeBadgeSpan(badge));
+        var linkHtml = linkEl.outerHTML;
 
-        // Sub-items (Shopify linklist uses .links for children)
-        var subLinks = item.links || item.items || [];
-        if (subLinks.length > 0 && useList) {
+        // Sub-items
+        if (item.links && item.links.length && useList) {
           var subHtml = '<ul>';
-          subLinks.forEach(function(sub) {
-            var subBadge = badges[sub.title ? sub.title.trim() : ''];
-            var subBadgeHtml = subBadge ? '<span class="tm-badge">' + escapeHtml(subBadge) + '</span>' : '';
-            subHtml += '<li><a href="' + escapeHtml(sub.url) + '"'
-              + (linkClass ? ' class="' + escapeHtml(linkClass) + '"' : '') + '>'
-              + escapeHtml(sub.title) + subBadgeHtml + '</a></li>';
+          item.links.forEach(function(sub) {
+            var subBadge = badges[sub.title.trim()];
+            var subEl = document.createElement('a');
+            subEl.href = sub.url;
+            if (linkClass) subEl.className = linkClass;
+            subEl.textContent = sub.title;
+            if (subBadge) subEl.appendChild(makeBadgeSpan(subBadge));
+            subHtml += '<li' + (liClass ? ' class="' + liClass + '"' : '') + '>' + subEl.outerHTML + '</li>';
           });
           subHtml += '</ul>';
-          html += useList
-            ? ('<li' + (liClass ? ' class="' + escapeHtml(liClass) + '"' : '') + '>' + linkHtml + subHtml + '</li>')
-            : (linkHtml);
+          html += '<li' + (liClass ? ' class="' + liClass + '"' : '') + '>' + linkHtml + subHtml + '</li>';
         } else {
           html += useList
-            ? ('<li' + (liClass ? ' class="' + escapeHtml(liClass) + '"' : '') + '>' + linkHtml + '</li>')
+            ? ('<li' + (liClass ? ' class="' + liClass + '"' : '') + '>' + linkHtml + '</li>')
             : linkHtml;
         }
       });
@@ -178,27 +214,22 @@
     function loadNativeBadges() {
       if (!nativeMenuHandle) return;
 
-      // Menu items come from Liquid (linklists) — inject nav immediately
-      if (nativeMenuItems && nativeMenuItems.length > 0) {
-        // Fetch badges from API then build nav
-        fetch('/apps/tree-master/native-badges/' + nativeMenuHandle + '?shop=' + shop)
-          .then(function(res) { return res.ok ? res.json() : null; })
-          .then(function(data) {
-            var badges = (data && data.badges) ? data.badges : {};
-            buildAndInjectNativeMenu(nativeMenuItems, badges);
-          })
-          .catch(function() {
-            buildAndInjectNativeMenu(nativeMenuItems, {});
-          });
-      } else {
-        // Fallback: no linklist found, try badge-only injection
-        fetch('/apps/tree-master/native-badges/' + nativeMenuHandle + '?shop=' + shop)
-          .then(function(res) { return res.ok ? res.json() : null; })
-          .then(function(data) {
-            if (data && data.badges) injectBadgesOnly(data.badges);
-          })
-          .catch(function() {});
-      }
+      var items = getMenuItemsFromDOM();
+
+      // Fetch badges then build/inject
+      fetch('/apps/tree-master/native-badges/' + nativeMenuHandle + '?shop=' + shop)
+        .then(function(res) { return res.ok ? res.json() : null; })
+        .then(function(data) {
+          var badges = (data && data.badges) ? data.badges : {};
+          if (items) {
+            buildAndInjectNativeMenu(items, badges);
+          } else {
+            injectBadgesOnly(badges);
+          }
+        })
+        .catch(function() {
+          if (items) buildAndInjectNativeMenu(items, {});
+        });
     }
 
     // ---- Custom menu injection ----
@@ -220,7 +251,6 @@
             return;
           }
 
-          // Inject CSS
           if (data.css) {
             var style = document.createElement("style");
             style.setAttribute("data-tree-master", menuId);
@@ -228,12 +258,10 @@
             document.head.appendChild(style);
           }
 
-          // Replace nav's inner content with custom menu
           nav.setAttribute("data-tree-master-original", nav.innerHTML);
           nav.setAttribute("data-tree-master-id", menuId);
           nav.innerHTML = data.html;
 
-          // Execute custom JS
           if (data.js) {
             try {
               var fn = new Function(data.js);
@@ -293,7 +321,7 @@
       "type": "text",
       "id": "native_menu_handle",
       "label": "Menu Handle",
-      "info": "Enter your Shopify menu handle (e.g. 'main-menu'). The menu items will be displayed in your header navigation. To show badges, add them to items in Tree Master and Deploy."
+      "info": "Enter your Shopify menu handle (e.g. 'main-menu'). The menu items will be displayed in your header navigation. To show badges, add them to items in Tree Master and Save."
     },
     {
       "type": "color",
