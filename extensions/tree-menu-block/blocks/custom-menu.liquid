@@ -180,66 +180,107 @@
       });
     }
 
-    // ---- Native menu injection ----
+    // ---- Native menu injection (clone-based, preserves theme CSS) ----
+
+    // Update a link element's text node + badge, keeping SVGs/icons intact
+    function updateLinkContent(linkEl, title, badge) {
+      linkEl.querySelectorAll('.tm-badge').forEach(function(b) { b.remove(); });
+      var updated = false;
+      linkEl.childNodes.forEach(function(node) {
+        if (!updated && node.nodeType === 3 && node.nodeValue.trim()) {
+          node.nodeValue = title;
+          updated = true;
+        }
+      });
+      if (!updated) {
+        linkEl.insertBefore(document.createTextNode(title), linkEl.firstChild);
+      }
+      if (badge) linkEl.appendChild(makeBadgeSpan(badge));
+    }
+
     function buildAndInjectNativeMenu(items, badges) {
       if (!items || !items.length) return false;
 
       var nav = findNav();
       if (!nav) {
-        console.warn("Tree Master: could not find header navigation. Try setting a custom CSS selector in App Embeds settings.");
+        console.warn("Tree Master: could not find header navigation. Try setting a custom CSS selector.");
         return false;
       }
 
-      // Copy existing nav structure classes to preserve theme styling
-      var existingLink = nav.querySelector('a');
-      var linkClass = existingLink ? existingLink.className : '';
-      var existingUl = nav.querySelector('ul');
-      var listClass = existingUl ? existingUl.className : '';
-      var existingLi = nav.querySelector('li');
-      var liClass = existingLi ? existingLi.className : '';
-      var useList = !!existingLi;
+      // Work on the <ul> that contains top-level nav items
+      var navList = nav.querySelector('ul') || nav;
+      var existingLis = navList.querySelectorAll(':scope > li');
+      if (!existingLis.length) return false;
 
-      var html = useList ? ('<ul' + (listClass ? ' class="' + listClass + '"' : '') + '>') : '';
+      // Pick templates from the existing nav
+      var simpleLiTemplate = null;
+      var dropdownLiTemplate = null;
+      existingLis.forEach(function(li) {
+        if (!dropdownLiTemplate && li.querySelector('ul')) dropdownLiTemplate = li;
+        if (!simpleLiTemplate && !li.querySelector('ul'))  simpleLiTemplate = li;
+      });
+      if (!simpleLiTemplate) simpleLiTemplate = existingLis[0];
+
+      var fragment = document.createDocumentFragment();
 
       items.forEach(function(item) {
-        var badge = badges[item.title.trim()];
-        var linkEl = document.createElement('a');
-        linkEl.href = item.url;
-        if (linkClass) linkEl.className = linkClass;
-        linkEl.textContent = item.title;
-        if (badge) linkEl.appendChild(makeBadgeSpan(badge));
-        var linkHtml = linkEl.outerHTML;
+        var hasDropdown = item.links && item.links.length > 0;
+        var template = (hasDropdown && dropdownLiTemplate) ? dropdownLiTemplate : simpleLiTemplate;
+        var newLi = template.cloneNode(true);
 
-        // Sub-items: use our own CSS dropdown so theme JS is not required
-        if (item.links && item.links.length) {
-          var subHtml = '<ul class="tm-dropdown">';
-          item.links.forEach(function(sub) {
-            var subBadge = badges[sub.title.trim()];
-            var subEl = document.createElement('a');
-            subEl.href = sub.url;
-            if (linkClass) subEl.className = linkClass;
-            subEl.textContent = sub.title;
-            if (subBadge) subEl.appendChild(makeBadgeSpan(subBadge));
-            subHtml += '<li>' + subEl.outerHTML + '</li>';
-          });
-          subHtml += '</ul>';
-          var liExtraClass = (liClass ? liClass + ' ' : '') + 'tm-has-dropdown';
-          html += useList
-            ? ('<li class="' + liExtraClass + '">' + linkHtml + subHtml + '</li>')
-            : ('<span class="tm-has-dropdown">' + linkHtml + subHtml + '</span>');
-        } else {
-          html += useList
-            ? ('<li' + (liClass ? ' class="' + liClass + '"' : '') + '>' + linkHtml + '</li>')
-            : linkHtml;
+        // Find the top-level anchor to update
+        var topLink = newLi.querySelector(':scope > a')
+          || newLi.querySelector(':scope > details > summary > a')
+          || newLi.querySelector('a');
+
+        if (topLink) {
+          topLink.href = item.url;
+          updateLinkContent(topLink, item.title, badges[item.title.trim()]);
         }
+
+        // Update sub-items inside the cloned dropdown structure
+        if (hasDropdown && dropdownLiTemplate) {
+          var subList = newLi.querySelector('ul');
+          if (subList) {
+            var subLiTemplate = subList.querySelector('li');
+            subList.innerHTML = '';
+            item.links.forEach(function(sub) {
+              var newSubLi = subLiTemplate
+                ? subLiTemplate.cloneNode(true)
+                : document.createElement('li');
+              var subLink = newSubLi.querySelector('a') || document.createElement('a');
+              subLink.href = sub.url;
+              updateLinkContent(subLink, sub.title, badges[sub.title.trim()]);
+              if (!newSubLi.contains(subLink)) newSubLi.appendChild(subLink);
+              subList.appendChild(newSubLi);
+            });
+          }
+        } else if (hasDropdown) {
+          // No dropdown template in theme — use CSS fallback
+          var fbUl = document.createElement('ul');
+          fbUl.className = 'tm-dropdown';
+          item.links.forEach(function(sub) {
+            var fbLi = document.createElement('li');
+            var fbA  = document.createElement('a');
+            fbA.href = sub.url;
+            fbA.textContent = sub.title;
+            var subBadge = badges[sub.title.trim()];
+            if (subBadge) fbA.appendChild(makeBadgeSpan(subBadge));
+            fbLi.appendChild(fbA);
+            fbUl.appendChild(fbLi);
+          });
+          newLi.classList.add('tm-has-dropdown');
+          newLi.appendChild(fbUl);
+        }
+
+        fragment.appendChild(newLi);
       });
 
-      if (useList) html += '</ul>';
-
-      nav.setAttribute("data-tree-master-original", nav.innerHTML);
-      nav.setAttribute("data-tree-master-native", nativeMenuHandle);
-      nav.innerHTML = html;
-      console.log("Tree Master: native menu injected with " + items.length + " items.");
+      navList.setAttribute('data-tree-master-original', navList.innerHTML);
+      navList.setAttribute('data-tree-master-native', nativeMenuHandle);
+      navList.innerHTML = '';
+      navList.appendChild(fragment);
+      console.log("Tree Master: native menu injected (" + items.length + " items, theme CSS preserved).");
       return true;
     }
 
