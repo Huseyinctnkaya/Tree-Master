@@ -80,33 +80,112 @@
       return null;
     }
 
-    // ---- Native badge injection ----
+    // ---- Native menu + badge injection ----
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function makeBadgeSpan(text) {
+      var span = document.createElement('span');
+      span.className = 'tm-badge';
+      span.textContent = text;
+      return span;
+    }
+
     function getLinkText(link) {
-      // Clone link, remove any existing badges, then get text content
       var clone = link.cloneNode(true);
       clone.querySelectorAll('.tm-badge').forEach(function(b) { b.remove(); });
       return clone.textContent.trim();
     }
 
-    function injectBadges(badges) {
+    // Inject badges onto already-rendered nav links (fallback when no items returned)
+    function injectBadgesOnly(badges) {
       if (!badges || Object.keys(badges).length === 0) return;
       var links = document.querySelectorAll('header a, nav a, [role="navigation"] a');
       links.forEach(function(link) {
         var text = getLinkText(link);
         if (text && badges[text] && !link.querySelector('.tm-badge')) {
-          var span = document.createElement('span');
-          span.className = 'tm-badge';
-          span.textContent = badges[text];
-          link.appendChild(span);
+          link.appendChild(makeBadgeSpan(badges[text]));
         }
       });
+    }
+
+    // Replace nav with Shopify menu items and inject badges
+    function buildAndInjectNativeMenu(items, badges) {
+      if (!items || items.length === 0) return false;
+
+      var nav = findNav();
+      if (!nav) {
+        console.warn("Tree Master: could not find header navigation. Try setting a custom CSS selector in App Embeds settings.");
+        return false;
+      }
+
+      // Detect nav structure to preserve theme styling
+      var existingLink = nav.querySelector('a');
+      var linkClass = existingLink ? existingLink.className : '';
+      var existingUl = nav.querySelector('ul');
+      var listClass = existingUl ? existingUl.className : '';
+      var existingLi = nav.querySelector('li');
+      var liClass = existingLi ? existingLi.className : '';
+      var useList = !!existingLi;
+
+      var html = useList ? ('<ul' + (listClass ? ' class="' + escapeHtml(listClass) + '"' : '') + '>') : '';
+
+      items.forEach(function(item) {
+        var badge = badges[item.title ? item.title.trim() : ''];
+        var badgeHtml = badge ? '<span class="tm-badge">' + escapeHtml(badge) + '</span>' : '';
+        var linkHtml = '<a href="' + escapeHtml(item.url) + '"'
+          + (linkClass ? ' class="' + escapeHtml(linkClass) + '"' : '') + '>'
+          + escapeHtml(item.title) + badgeHtml + '</a>';
+
+        // Sub-items
+        if (item.items && item.items.length > 0 && useList) {
+          var subHtml = '<ul>';
+          item.items.forEach(function(sub) {
+            var subBadge = badges[sub.title ? sub.title.trim() : ''];
+            var subBadgeHtml = subBadge ? '<span class="tm-badge">' + escapeHtml(subBadge) + '</span>' : '';
+            subHtml += '<li><a href="' + escapeHtml(sub.url) + '"'
+              + (linkClass ? ' class="' + escapeHtml(linkClass) + '"' : '') + '>'
+              + escapeHtml(sub.title) + subBadgeHtml + '</a></li>';
+          });
+          subHtml += '</ul>';
+          html += useList
+            ? ('<li' + (liClass ? ' class="' + escapeHtml(liClass) + '"' : '') + '>' + linkHtml + subHtml + '</li>')
+            : linkHtml;
+        } else {
+          html += useList
+            ? ('<li' + (liClass ? ' class="' + escapeHtml(liClass) + '"' : '') + '>' + linkHtml + '</li>')
+            : linkHtml;
+        }
+      });
+
+      if (useList) html += '</ul>';
+
+      nav.setAttribute("data-tree-master-original", nav.innerHTML);
+      nav.setAttribute("data-tree-master-native", nativeMenuHandle);
+      nav.innerHTML = html;
+      console.log("Tree Master: native menu injected with " + items.length + " items.");
+      return true;
     }
 
     function loadNativeBadges() {
       if (!nativeMenuHandle) return;
       fetch('/apps/tree-master/native-badges/' + nativeMenuHandle + '?shop=' + shop)
         .then(function(res) { return res.ok ? res.json() : null; })
-        .then(function(data) { if (data && data.badges) injectBadges(data.badges); })
+        .then(function(data) {
+          if (!data) return;
+          // If API returned menu items, replace nav + inject badges
+          if (data.items && data.items.length > 0) {
+            buildAndInjectNativeMenu(data.items, data.badges || {});
+          } else if (data.badges && Object.keys(data.badges).length > 0) {
+            // Fallback: only inject badges onto existing nav links
+            injectBadgesOnly(data.badges);
+          }
+        })
         .catch(function() {});
     }
 
@@ -202,7 +281,7 @@
       "type": "text",
       "id": "native_menu_handle",
       "label": "Menu Handle",
-      "info": "Enter your Shopify menu handle to show badges (e.g. 'main-menu'). Add badges to items in Tree Master, then Deploy."
+      "info": "Enter your Shopify menu handle (e.g. 'main-menu'). The menu items will be displayed in your header navigation. To show badges, add them to items in Tree Master and Deploy."
     },
     {
       "type": "color",
