@@ -41,6 +41,35 @@
     to   { transform: scale(1);   opacity: 1; }
   }
   #tm-native-menu-data { display: none !important; }
+
+  /* Dropdown for injected native menu items */
+  .tm-has-dropdown { position: relative; }
+  .tm-dropdown {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 9999;
+    min-width: 160px;
+    background: #fff;
+    border: 1px solid rgba(0,0,0,0.08);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    list-style: none;
+    padding: 6px 0;
+    margin: 4px 0 0 0;
+  }
+  .tm-has-dropdown:hover > .tm-dropdown,
+  .tm-has-dropdown:focus-within > .tm-dropdown { display: block; }
+  .tm-dropdown li { list-style: none; }
+  .tm-dropdown a {
+    display: block;
+    padding: 8px 16px;
+    white-space: nowrap;
+    text-decoration: none;
+    color: inherit;
+  }
+  .tm-dropdown a:hover { background: rgba(0,0,0,0.05); }
 </style>
 
 {% comment %} Hidden menu data rendered server-side from linklists {% endcomment %}
@@ -181,9 +210,9 @@
         if (badge) linkEl.appendChild(makeBadgeSpan(badge));
         var linkHtml = linkEl.outerHTML;
 
-        // Sub-items
-        if (item.links && item.links.length && useList) {
-          var subHtml = '<ul>';
+        // Sub-items: use our own CSS dropdown so theme JS is not required
+        if (item.links && item.links.length) {
+          var subHtml = '<ul class="tm-dropdown">';
           item.links.forEach(function(sub) {
             var subBadge = badges[sub.title.trim()];
             var subEl = document.createElement('a');
@@ -191,10 +220,13 @@
             if (linkClass) subEl.className = linkClass;
             subEl.textContent = sub.title;
             if (subBadge) subEl.appendChild(makeBadgeSpan(subBadge));
-            subHtml += '<li' + (liClass ? ' class="' + liClass + '"' : '') + '>' + subEl.outerHTML + '</li>';
+            subHtml += '<li>' + subEl.outerHTML + '</li>';
           });
           subHtml += '</ul>';
-          html += '<li' + (liClass ? ' class="' + liClass + '"' : '') + '>' + linkHtml + subHtml + '</li>';
+          var liExtraClass = (liClass ? liClass + ' ' : '') + 'tm-has-dropdown';
+          html += useList
+            ? ('<li class="' + liExtraClass + '">' + linkHtml + subHtml + '</li>')
+            : ('<span class="tm-has-dropdown">' + linkHtml + subHtml + '</span>');
         } else {
           html += useList
             ? ('<li' + (liClass ? ' class="' + liClass + '"' : '') + '>' + linkHtml + '</li>')
