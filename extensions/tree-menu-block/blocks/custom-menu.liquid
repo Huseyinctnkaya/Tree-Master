@@ -10,6 +10,7 @@
 {% assign badge_color = block.settings.badge_color %}
 {% assign badge_text_color = block.settings.badge_text_color %}
 {% if nav_selector == blank %}{% assign nav_selector = "header nav" %}{% endif %}
+{% assign native_linklist = linklists[native_menu_handle] %}
 
 {% if menu_id != blank or native_menu_handle != blank %}
 <style>
@@ -47,6 +48,7 @@
     var customSelector = {{ nav_selector | json }};
     var nativeMenuHandle = {{ native_menu_handle | json }};
     var shop = {{ shop.permanent_domain | json }};
+    var nativeMenuItems = {{ native_linklist.links | json }};
 
     // Fallback selectors — more specific first (Dawn, Refresh, Sense, etc.)
     var fallbackSelectors = [
@@ -142,10 +144,11 @@
           + (linkClass ? ' class="' + escapeHtml(linkClass) + '"' : '') + '>'
           + escapeHtml(item.title) + badgeHtml + '</a>';
 
-        // Sub-items
-        if (item.items && item.items.length > 0 && useList) {
+        // Sub-items (Shopify linklist uses .links for children)
+        var subLinks = item.links || item.items || [];
+        if (subLinks.length > 0 && useList) {
           var subHtml = '<ul>';
-          item.items.forEach(function(sub) {
+          subLinks.forEach(function(sub) {
             var subBadge = badges[sub.title ? sub.title.trim() : ''];
             var subBadgeHtml = subBadge ? '<span class="tm-badge">' + escapeHtml(subBadge) + '</span>' : '';
             subHtml += '<li><a href="' + escapeHtml(sub.url) + '"'
@@ -155,7 +158,7 @@
           subHtml += '</ul>';
           html += useList
             ? ('<li' + (liClass ? ' class="' + escapeHtml(liClass) + '"' : '') + '>' + linkHtml + subHtml + '</li>')
-            : linkHtml;
+            : (linkHtml);
         } else {
           html += useList
             ? ('<li' + (liClass ? ' class="' + escapeHtml(liClass) + '"' : '') + '>' + linkHtml + '</li>')
@@ -174,19 +177,28 @@
 
     function loadNativeBadges() {
       if (!nativeMenuHandle) return;
-      fetch('/apps/tree-master/native-badges/' + nativeMenuHandle + '?shop=' + shop)
-        .then(function(res) { return res.ok ? res.json() : null; })
-        .then(function(data) {
-          if (!data) return;
-          // If API returned menu items, replace nav + inject badges
-          if (data.items && data.items.length > 0) {
-            buildAndInjectNativeMenu(data.items, data.badges || {});
-          } else if (data.badges && Object.keys(data.badges).length > 0) {
-            // Fallback: only inject badges onto existing nav links
-            injectBadgesOnly(data.badges);
-          }
-        })
-        .catch(function() {});
+
+      // Menu items come from Liquid (linklists) — inject nav immediately
+      if (nativeMenuItems && nativeMenuItems.length > 0) {
+        // Fetch badges from API then build nav
+        fetch('/apps/tree-master/native-badges/' + nativeMenuHandle + '?shop=' + shop)
+          .then(function(res) { return res.ok ? res.json() : null; })
+          .then(function(data) {
+            var badges = (data && data.badges) ? data.badges : {};
+            buildAndInjectNativeMenu(nativeMenuItems, badges);
+          })
+          .catch(function() {
+            buildAndInjectNativeMenu(nativeMenuItems, {});
+          });
+      } else {
+        // Fallback: no linklist found, try badge-only injection
+        fetch('/apps/tree-master/native-badges/' + nativeMenuHandle + '?shop=' + shop)
+          .then(function(res) { return res.ok ? res.json() : null; })
+          .then(function(data) {
+            if (data && data.badges) injectBadgesOnly(data.badges);
+          })
+          .catch(function() {});
+      }
     }
 
     // ---- Custom menu injection ----
