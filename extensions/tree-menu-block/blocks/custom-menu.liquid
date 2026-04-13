@@ -182,20 +182,15 @@
 
     // ---- Native menu injection (clone-based, preserves theme CSS) ----
 
-    // Update a link element's text node + badge, keeping SVGs/icons intact
+    // Update a link element's text + badge, keeping only SVG icons
     function updateLinkContent(linkEl, title, badge) {
-      linkEl.querySelectorAll('.tm-badge').forEach(function(b) { b.remove(); });
-      var updated = false;
-      linkEl.childNodes.forEach(function(node) {
-        if (!updated && node.nodeType === 3 && node.nodeValue.trim()) {
-          node.nodeValue = title;
-          updated = true;
-        }
-      });
-      if (!updated) {
-        linkEl.insertBefore(document.createTextNode(title), linkEl.firstChild);
-      }
+      // Save SVGs (dropdown arrows, icons) before clearing
+      var svgs = Array.from(linkEl.querySelectorAll('svg'));
+      linkEl.innerHTML = '';
+      linkEl.appendChild(document.createTextNode(title));
+      svgs.forEach(function(svg) { linkEl.appendChild(svg); });
       if (badge) linkEl.appendChild(makeBadgeSpan(badge));
+      if (linkEl.hasAttribute('aria-label')) linkEl.setAttribute('aria-label', title);
     }
 
     function buildAndInjectNativeMenu(items, badges) {
