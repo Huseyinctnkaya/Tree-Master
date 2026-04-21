@@ -290,7 +290,8 @@
       fetch('/apps/tree-master/native-badges/' + nativeMenuHandle + '?shop=' + shop)
         .then(function(res) { return res.ok ? res.json() : null; })
         .then(function(data) {
-          var badges = (data && data.badges) ? data.badges : {};
+          if (!data || data.enabled === false) return; // free plan — do nothing
+          var badges = data.badges || {};
           if (items) {
             buildAndInjectNativeMenu(items, badges);
           } else {
@@ -298,7 +299,7 @@
           }
         })
         .catch(function() {
-          if (items) buildAndInjectNativeMenu(items, {});
+          // silently fail — don't inject on error
         });
     }
 
