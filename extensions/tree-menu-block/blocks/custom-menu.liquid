@@ -290,7 +290,25 @@
       fetch('/apps/tree-master/native-badges/' + nativeMenuHandle + '?shop=' + shop)
         .then(function(res) { return res.ok ? res.json() : null; })
         .then(function(data) {
-          if (!data || data.enabled === false) return; // free plan — do nothing
+          if (!data || data.enabled === false) {
+            // Show upgrade notice only inside Theme Editor preview
+            if (window.Shopify && window.Shopify.designMode) {
+              var banner = document.createElement('div');
+              banner.style.cssText = [
+                'position:fixed', 'bottom:20px', 'right:20px', 'z-index:99999',
+                'background:#1a1a1a', 'color:#fff',
+                'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
+                'font-size:13px', 'font-weight:500',
+                'padding:12px 16px', 'border-radius:8px',
+                'box-shadow:0 4px 16px rgba(0,0,0,0.3)',
+                'max-width:280px', 'line-height:1.4'
+              ].join(';');
+              banner.innerHTML = '🔒 <strong>Native Menu Badges</strong> requires a <strong>Premium</strong> plan. <a href="/admin/apps/tree-master/app/pricing" style="color:#7eb8ff;text-decoration:underline;">Upgrade →</a>';
+              document.body.appendChild(banner);
+              setTimeout(function() { banner.remove(); }, 6000);
+            }
+            return;
+          }
           var badges = data.badges || {};
           if (items) {
             buildAndInjectNativeMenu(items, badges);
@@ -384,7 +402,7 @@
       "type": "text",
       "id": "native_menu_handle",
       "label": "Menu Handle",
-      "info": "Enter your Shopify menu handle (e.g. 'main-menu'). The menu items will be displayed in your header navigation. To show badges, add them to items in Tree Master and Save."
+      "info": "Premium feature. Enter your Shopify menu handle (e.g. 'main-menu'). The menu items will be displayed in your header navigation. To show badges, add them to items in Tree Master and Save."
     },
     {
       "type": "color",
