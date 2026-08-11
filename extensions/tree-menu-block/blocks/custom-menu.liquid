@@ -68,7 +68,6 @@
     var menuId = {{ menu_id | json }};
     var customSelector = {{ nav_selector | json }};
     var nativeMenuHandle = {{ native_menu_handle | json }};
-    var shop = {{ shop.permanent_domain | json }};
 
     var fallbackSelectors = [
       customSelector,
@@ -287,7 +286,9 @@
     function loadNativeBadges() {
       if (!nativeMenuHandle) return;
       var items = getMenuItemsFromDOM();
-      fetch('/apps/tree-master/native-badges/' + nativeMenuHandle + '?shop=' + shop)
+      // Do not append ?shop= here — the App Proxy adds its own signed `shop`
+      // parameter, and a duplicate is rejected as a signature-tampering attempt.
+      fetch('/apps/tree-master/native-badges/' + nativeMenuHandle)
         .then(function(res) { return res.ok ? res.json() : null; })
         .then(function(data) {
           if (!data || data.enabled === false) {
