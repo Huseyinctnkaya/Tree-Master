@@ -14,7 +14,8 @@ database.sqlite
 .env
 .env.*
 
-package-lock.json
+# package-lock.json is committed so deploys install the exact tree we tested.
+# The other lockfiles stay ignored — this project is npm-only.
 yarn.lock
 pnpm-lock.yaml
 
